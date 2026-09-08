@@ -1,0 +1,43 @@
+#pragma once
+
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
+
+#include "ddb/storage/page.h"
+
+namespace ddb::storage {
+
+class StorageError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
+// Owns one database file and provides synchronous, fixed-page I/O.
+class PageManager final {
+ public:
+  explicit PageManager(const std::filesystem::path& database_path);
+  ~PageManager() noexcept;
+
+  PageManager(const PageManager&) = delete;
+  PageManager& operator=(const PageManager&) = delete;
+  PageManager(PageManager&&) = delete;
+  PageManager& operator=(PageManager&&) = delete;
+
+  [[nodiscard]] PageId allocate_page();
+  void read_page(PageId id, Page& page);
+  void write_page(PageId id, const Page& page);
+  void flush();
+
+  [[nodiscard]] std::uint64_t page_count() const noexcept { return page_count_; }
+
+ private:
+  [[nodiscard]] std::streamoff offset_for(PageId id) const;
+  void validate_allocated(PageId id) const;
+  void ensure_stream_good(const char* operation);
+
+  std::filesystem::path path_;
+  std::fstream file_;
+  std::uint64_t page_count_{0};
+};
+}  // namespace ddb::storage
