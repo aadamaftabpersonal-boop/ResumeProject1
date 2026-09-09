@@ -11,6 +11,8 @@ add_library(ddb_storage
   src/storage/page_manager.cpp
   src/buffer/buffer_pool_manager.cpp
   src/index/bplus_tree.cpp
+  src/execution/table_heap.cpp
+  src/concurrency/lock_manager.cpp
 )
 target_include_directories(ddb_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -68,6 +70,37 @@ endif()
 add_test(NAME bplus_tree_tests COMMAND bplus_tree_tests)
 set_tests_properties(bplus_tree_tests PROPERTIES LABELS "unit;integration;stress")
 
+add_executable(execution_tests tests/execution_tests.cpp)
+target_link_libraries(execution_tests PRIVATE ddb_storage)
+if(DDB_ENABLE_SANITIZERS)
+  if(MSVC)
+    target_compile_options(execution_tests PRIVATE /fsanitize=address)
+  else()
+    target_compile_options(execution_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(execution_tests PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+add_test(NAME execution_tests COMMAND execution_tests)
+set_tests_properties(execution_tests PROPERTIES LABELS "unit;integration;stress;randomized")
+
+add_executable(transaction_tests tests/transaction_tests.cpp)
+target_link_libraries(transaction_tests PRIVATE ddb_storage)
+if(DDB_ENABLE_SANITIZERS)
+  if(MSVC)
+    target_compile_options(transaction_tests PRIVATE /fsanitize=address)
+  else()
+    target_compile_options(transaction_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(transaction_tests PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+add_test(NAME transaction_tests COMMAND transaction_tests)
+set_tests_properties(transaction_tests PROPERTIES LABELS "unit;integration;stress;concurrency")
+
+add_executable(page_format_tests tests/page_format_tests.cpp)
+target_link_libraries(page_format_tests PRIVATE ddb_storage)
+add_test(NAME page_format_tests COMMAND page_format_tests)
+set_tests_properties(page_format_tests PROPERTIES LABELS "unit;integration;storage")
+
 add_executable(storage_benchmark benchmarks/storage_benchmark.cpp)
 target_link_libraries(storage_benchmark PRIVATE ddb_storage)
 if(DDB_ENABLE_SANITIZERS)
@@ -89,3 +122,9 @@ if(DDB_ENABLE_SANITIZERS)
     target_link_options(bplus_tree_benchmark PRIVATE -fsanitize=address,undefined)
   endif()
 endif()
+
+add_executable(query_execution_benchmark benchmarks/query_execution_benchmark.cpp)
+target_link_libraries(query_execution_benchmark PRIVATE ddb_storage)
+
+add_executable(lock_manager_benchmark benchmarks/lock_manager_benchmark.cpp)
+target_link_libraries(lock_manager_benchmark PRIVATE ddb_storage)

@@ -1,12 +1,15 @@
 #include "ddb/storage/page_manager.h"
 
 #include <array>
+#include <cstring>
 #include <limits>
 #include <string>
 
 namespace ddb::storage {
 namespace {
 constexpr std::uintmax_t kPageSizeAsUintMax = static_cast<std::uintmax_t>(kPageSize);
+constexpr char kMagic[]="DDBP";
+void put64(std::byte* d,std::size_t p,std::uint64_t v){for(unsigned i=0;i<8;++i)d[p+i]=std::byte((v>>(i*8))&255U);}std::uint64_t get64(const std::byte*d,std::size_t p){std::uint64_t v=0;for(unsigned i=0;i<8;++i)v|=std::uint64_t(std::to_integer<unsigned char>(d[p+i]))<<(i*8);return v;}void put16(std::byte*d,std::size_t p,std::uint16_t v){d[p]=std::byte(v&255U);d[p+1]=std::byte(v>>8U);}std::uint16_t get16(const std::byte*d,std::size_t p){return std::uint16_t(std::to_integer<unsigned char>(d[p]))|(std::uint16_t(std::to_integer<unsigned char>(d[p+1]))<<8U);}
 }
 
 PageManager::PageManager(const std::filesystem::path& database_path) : path_(database_path) {
@@ -71,13 +74,8 @@ void PageManager::ensure_stream_good(const char* operation) {
 PageId PageManager::allocate_page() {
   const PageId id(page_count_);
   (void)offset_for(id);
-  Page blank(id);
-  file_.clear();
-  file_.seekp(offset_for(id));
-  ensure_stream_good("seek during allocation");
-  file_.write(reinterpret_cast<const char*>(blank.data()), static_cast<std::streamsize>(kPageSize));
-  ensure_stream_good("write during allocation");
   ++page_count_;
+  try { write_page(id,Page(id)); } catch(...) { --page_count_; throw; }
   return id;
 }
 
@@ -86,12 +84,14 @@ void PageManager::read_page(PageId id, Page& page) {
   file_.clear();
   file_.seekg(offset_for(id));
   ensure_stream_good("seek before read");
-  file_.read(reinterpret_cast<char*>(page.data()), static_cast<std::streamsize>(kPageSize));
+  std::array<std::byte,kPageSize> raw{};file_.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(kPageSize));
   if (file_.gcount() != static_cast<std::streamsize>(kPageSize)) {
     throw StorageError("short read from database file");
   }
   ensure_stream_good("read");
-  page.set_id(id);
+  if(std::memcmp(raw.data(),kMagic,4)!=0||get16(raw.data(),4)!=kPageFormatVersion||get16(raw.data(),6)!=kPageHeaderSize)throw StorageError("unsupported or legacy page format");
+  if(get64(raw.data(),8)!=id.value())throw StorageError("page header identifier mismatch");
+  page.set_id(id);page.set_lsn(get64(raw.data(),16));std::memcpy(page.data(),raw.data()+kPageHeaderSize,kPagePayloadSize);
 }
 
 void PageManager::write_page(PageId id, const Page& page) {
@@ -102,7 +102,7 @@ void PageManager::write_page(PageId id, const Page& page) {
   file_.clear();
   file_.seekp(offset_for(id));
   ensure_stream_good("seek before write");
-  file_.write(reinterpret_cast<const char*>(page.data()), static_cast<std::streamsize>(kPageSize));
+  std::array<std::byte,kPageSize> raw{};std::memcpy(raw.data(),kMagic,4);put16(raw.data(),4,kPageFormatVersion);put16(raw.data(),6,kPageHeaderSize);put64(raw.data(),8,id.value());put64(raw.data(),16,page.lsn());std::memcpy(raw.data()+kPageHeaderSize,page.data(),kPagePayloadSize);file_.write(reinterpret_cast<const char*>(raw.data()), static_cast<std::streamsize>(kPageSize));
   ensure_stream_good("write");
 }
 

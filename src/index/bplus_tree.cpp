@@ -32,8 +32,8 @@ struct BPlusTree::Node final {
 
 PageId BPlusTree::create(ddb::storage::PageManager& pm, ddb::buffer::BufferPoolManager& bp, BPlusTreeConfig config) {
   if (config.leaf_max_keys < 2 || config.internal_max_keys < 2 ||
-      kHeaderSize + static_cast<std::size_t>(config.leaf_max_keys) * kLeafEntrySize > ddb::storage::kPageSize ||
-      kHeaderSize + 8 + static_cast<std::size_t>(config.internal_max_keys) * kInternalEntrySize > ddb::storage::kPageSize) throw std::invalid_argument("invalid B+ tree node capacity");
+      kHeaderSize + static_cast<std::size_t>(config.leaf_max_keys) * kLeafEntrySize > ddb::storage::kPagePayloadSize ||
+      kHeaderSize + 8 + static_cast<std::size_t>(config.internal_max_keys) * kInternalEntrySize > ddb::storage::kPagePayloadSize) throw std::invalid_argument("invalid B+ tree node capacity");
   const PageId metadata = pm.allocate_page();
   const PageId root = pm.allocate_page();
   Page* meta = bp.fetch_page(metadata); if (!meta) throw std::runtime_error("cannot fetch new B+ tree metadata");

@@ -29,7 +29,9 @@ std::filesystem::path test_path(std::string_view name) {
 
 void page_basics() {
   Page page(PageId(7));
-  EXPECT(page.size() == ddb::storage::kPageSize);
+  EXPECT(page.size() == ddb::storage::kPagePayloadSize);
+  EXPECT(page.payload_size() == ddb::storage::kPagePayloadSize);
+  EXPECT(page.version() == ddb::storage::kPageFormatVersion);
   EXPECT(page.id() == PageId(7));
   for (std::size_t i = 0; i < page.size(); ++i) EXPECT(page.data()[i] == std::byte{0});
   page.data()[3] = std::byte{0xA5};
@@ -84,6 +86,13 @@ void persistence_and_continuity() {
   std::error_code ec; std::filesystem::remove(path, ec);
 }
 
+void page_lsn_persistence() {
+  const auto path = test_path("lsn");
+  { PageManager manager(path); const auto id=manager.allocate_page(); Page page(id); page.set_lsn(0x123456789abcdef0ULL); manager.write_page(id,page); manager.flush(); }
+  { PageManager manager(path); Page page; manager.read_page(PageId(0),page); EXPECT(page.lsn()==0x123456789abcdef0ULL); }
+  std::error_code ec;std::filesystem::remove(path,ec);
+}
+
 void invalid_and_corrupt_inputs() {
   const auto impossible = std::filesystem::temp_directory_path() / "ddb_missing_parent" / "database.db";
   EXPECT_THROW(PageManager(impossible));
@@ -116,6 +125,7 @@ int main() {
   run("page_basics", page_basics);
   run("allocation_and_io", allocation_and_io);
   run("persistence_and_continuity", persistence_and_continuity);
+  run("page_lsn_persistence", page_lsn_persistence);
   run("invalid_and_corrupt_inputs", invalid_and_corrupt_inputs);
   if (failures != 0) { std::cerr << failures << " test expectation(s) failed\n"; return 1; }
   std::cout << "All storage tests passed\n";
