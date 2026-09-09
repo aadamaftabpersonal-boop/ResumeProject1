@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(ddb_storage
   src/storage/page_manager.cpp
+  src/storage/physical_mutation.cpp
   src/buffer/buffer_pool_manager.cpp
   src/index/bplus_tree.cpp
   src/execution/table_heap.cpp
@@ -100,6 +101,10 @@ add_executable(page_format_tests tests/page_format_tests.cpp)
 target_link_libraries(page_format_tests PRIVATE ddb_storage)
 add_test(NAME page_format_tests COMMAND page_format_tests)
 set_tests_properties(page_format_tests PROPERTIES LABELS "unit;integration;storage")
+
+add_executable(mutation_infrastructure_tests tests/mutation_infrastructure_tests.cpp)
+target_link_libraries(mutation_infrastructure_tests PRIVATE ddb_storage)
+add_test(NAME mutation_infrastructure_tests COMMAND mutation_infrastructure_tests)
 
 add_executable(storage_benchmark benchmarks/storage_benchmark.cpp)
 target_link_libraries(storage_benchmark PRIVATE ddb_storage)
