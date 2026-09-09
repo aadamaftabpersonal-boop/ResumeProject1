@@ -106,6 +106,10 @@ add_executable(mutation_infrastructure_tests tests/mutation_infrastructure_tests
 target_link_libraries(mutation_infrastructure_tests PRIVATE ddb_storage)
 add_test(NAME mutation_infrastructure_tests COMMAND mutation_infrastructure_tests)
 
+add_executable(bplus_mutation_tests tests/bplus_mutation_tests.cpp)
+target_link_libraries(bplus_mutation_tests PRIVATE ddb_storage)
+add_test(NAME bplus_mutation_tests COMMAND bplus_mutation_tests)
+
 add_executable(storage_benchmark benchmarks/storage_benchmark.cpp)
 target_link_libraries(storage_benchmark PRIVATE ddb_storage)
 if(DDB_ENABLE_SANITIZERS)

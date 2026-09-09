@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ddb/buffer/buffer_pool_manager.h"
+#include "ddb/storage/physical_mutation.h"
 
 namespace ddb::index {
 using KeyType = std::int64_t;
@@ -19,8 +20,8 @@ class BPlusTree final {
   BPlusTree(ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, ddb::storage::PageId metadata_page);
 
   [[nodiscard]] bool get_value(KeyType key, RecordId& result) const;
-  [[nodiscard]] bool insert(KeyType key, RecordId value);  // false on duplicate
-  [[nodiscard]] bool remove(KeyType key);                  // false if absent
+  [[nodiscard]] bool insert(KeyType key, RecordId value, ddb::storage::MutationContext* mutations = nullptr);  // false on duplicate
+  [[nodiscard]] bool remove(KeyType key, ddb::storage::MutationContext* mutations = nullptr);                  // false if absent
   [[nodiscard]] std::vector<std::pair<KeyType, RecordId>> scan(KeyType lower, KeyType upper) const;
   void flush();
 
@@ -41,11 +42,14 @@ class BPlusTree final {
   void rebalance_internal(ddb::storage::PageId);
   void update_parent_separator(ddb::storage::PageId child, KeyType new_first);
   void set_parent(ddb::storage::PageId child, ddb::storage::PageId parent);
+  [[nodiscard]] bool insert_impl(KeyType key, RecordId value);
+  [[nodiscard]] bool remove_impl(KeyType key);
 
   ddb::storage::PageManager& page_manager_;
   ddb::buffer::BufferPoolManager& buffer_pool_;
   ddb::storage::PageId metadata_page_id_;
   ddb::storage::PageId root_page_id_;
   BPlusTreeConfig config_;
+  ddb::storage::MutationContext* active_mutations_{nullptr};
 };
 }  // namespace ddb::index
