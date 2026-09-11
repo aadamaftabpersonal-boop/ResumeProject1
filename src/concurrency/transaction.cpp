@@ -16,12 +16,21 @@ ddb::storage::MutationContext& Transaction::mutation_context(ddb::buffer::Buffer
 
 std::optional<std::uint64_t> Transaction::finalize_mutation(ddb::storage::PhysicalMutation mutation) {
   pending_mutations_.push_back(std::move(mutation));
+  undo_resolved_.push_back(false);
   return std::nullopt;
 }
 
 bool Transaction::has_unfinalized_mutations() const noexcept {
   return mutation_context_ != nullptr && mutation_context_->has_unfinished_capture()
       || finalized_mutations_ != pending_mutations_.size();
+}
+
+bool Transaction::has_unresolved_mutations_for_abort() const noexcept {
+  if (mutation_context_ != nullptr && mutation_context_->has_unfinished_capture()) return true;
+  for (std::size_t index = 0; index < pending_mutations_.size(); ++index) {
+    if (!undo_resolved_[index]) return true;
+  }
+  return false;
 }
 
 void Transaction::finalize_next_mutation(std::uint64_t lsn) {
@@ -31,6 +40,23 @@ void Transaction::finalize_next_mutation(std::uint64_t lsn) {
   const auto& mutation = pending_mutations_[finalized_mutations_];
   mutation_pool_->finalize_pending_mutation(mutation.page_id, lsn);
   ++finalized_mutations_;
+}
+
+void Transaction::resolve_mutation_for_undo(std::size_t mutation_index, std::uint64_t restored_page_lsn) {
+  if (mutation_pool_ == nullptr || mutation_index >= pending_mutations_.size()) {
+    throw std::logic_error("invalid transaction mutation for undo resolution");
+  }
+  if (undo_resolved_[mutation_index]) throw std::logic_error("mutation was already resolved for undo");
+  for (std::size_t later = mutation_index + 1; later < undo_resolved_.size(); ++later) {
+    if (!undo_resolved_[later]) throw std::logic_error("undo resolution must follow reverse mutation order");
+  }
+  const auto page_id = pending_mutations_[mutation_index].page_id;
+  if (mutation_index < finalized_mutations_) {
+    mutation_pool_->restore_page_lsn_after_undo(page_id, restored_page_lsn);
+  } else {
+    mutation_pool_->resolve_pending_mutation(page_id, restored_page_lsn);
+  }
+  undo_resolved_[mutation_index] = true;
 }
 
 }  // namespace ddb::concurrency

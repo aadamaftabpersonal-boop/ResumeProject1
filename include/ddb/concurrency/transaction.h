@@ -17,10 +17,15 @@ class Transaction final : public ddb::storage::MutationFinalizer {
   [[nodiscard]] ddb::storage::MutationContext& mutation_context(ddb::buffer::BufferPoolManager&);
   [[nodiscard]] const std::vector<ddb::storage::PhysicalMutation>& pending_mutations() const noexcept { return pending_mutations_; }
   [[nodiscard]] bool has_unfinalized_mutations() const noexcept;
+  [[nodiscard]] bool has_unresolved_mutations_for_abort() const noexcept;
   // Called by the future durability coordinator after it has appended the
   // mutation record and obtained its real, nonzero LSN. Finalization is
   // strictly capture order and does not copy page images.
   void finalize_next_mutation(std::uint64_t lsn);
+  // Called only after the caller has applied the mutation's before image.
+  // Indices must be resolved in reverse capture order. The supplied PageLSN
+  // is the most recent surviving mutation LSN for this same page, or zero.
+  void resolve_mutation_for_undo(std::size_t mutation_index, std::uint64_t restored_page_lsn);
   [[nodiscard]] std::optional<std::uint64_t> finalize_mutation(ddb::storage::PhysicalMutation mutation) override;
  private:
   friend class TransactionManager;
@@ -31,6 +36,7 @@ class Transaction final : public ddb::storage::MutationFinalizer {
   ddb::buffer::BufferPoolManager* mutation_pool_{nullptr};
   std::unique_ptr<ddb::storage::MutationContext> mutation_context_;
   std::vector<ddb::storage::PhysicalMutation> pending_mutations_;
+  std::vector<bool> undo_resolved_;
   std::size_t finalized_mutations_{0};
 };
 

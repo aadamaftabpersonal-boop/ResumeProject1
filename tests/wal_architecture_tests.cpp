@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -97,6 +98,108 @@ void shutdown_gate_and_page_lsn_lifecycle() {
 execution::Schema schema() { return execution::Schema({{"value", execution::ValueType::Int64}}); }
 execution::Tuple tuple(std::int64_t value) { return execution::Tuple{{value}}; }
 
+void undo_payload(buffer::BufferPoolManager& pool, const storage::PhysicalMutation& mutation) {
+  auto* page = pool.fetch_page(mutation.page_id);
+  if (page == nullptr) throw std::runtime_error("cannot pin undo page");
+  std::memcpy(page->data(), mutation.before_image.data(), mutation.before_image.size());
+  if (!pool.unpin_page(mutation.page_id, true)) throw std::runtime_error("cannot unpin undo page");
+}
+
+void pending_undo_resolution() {
+  const auto file = path("ddb_pending_undo_resolution.db");
+  storage::PageManager disk(file);
+  FakeWal wal;
+  buffer::BufferPoolManager pool(disk, 4, &wal);
+  const auto page_a = disk.allocate_page();
+  const auto page_b = disk.allocate_page();
+  const auto page_c = disk.allocate_page();
+  concurrency::TransactionManager manager;
+
+  // PageLSN 0 is a valid restored state. A zero LSN remains invalid for the
+  // normal forward WAL-finalization API.
+  auto zero_tx = manager.begin();
+  auto& zero_context = zero_tx.mutation_context(pool);
+  zero_context.watch(page_a);
+  auto* page = pool.fetch_page(page_a);
+  page->data()[0] = std::byte{1};
+  zero_context.finish(page_a, *page);
+  EXPECT(pool.unpin_page(page_a, true));
+  try { zero_tx.finalize_next_mutation(0); EXPECT(false); } catch (const std::invalid_argument&) { EXPECT(true); }
+  const auto& zero_mutations = zero_tx.pending_mutations();
+  undo_payload(pool, zero_mutations[0]);
+  zero_tx.resolve_mutation_for_undo(0, 0);
+  page = pool.fetch_page(page_a);
+  EXPECT(page->lsn() == 0 && page->data()[0] == std::byte{0});
+  EXPECT(pool.unpin_page(page_a, false));
+  EXPECT(pool.pending_mutation_count(page_a) == 0);
+  EXPECT(pool.flush_page(page_a));
+
+  // A previously WAL-finalized mutation has no pending gate, but undo still
+  // restores PageLSN zero through the separate replay-only path.
+  auto finalized_tx = manager.begin();
+  auto& finalized = finalized_tx.mutation_context(pool);
+  finalized.watch(page_c);
+  page = pool.fetch_page(page_c);
+  page->data()[0] = std::byte{9};
+  finalized.finish(page_c, *page);
+  EXPECT(pool.unpin_page(page_c, true));
+  finalized_tx.finalize_next_mutation(17);
+  undo_payload(pool, finalized_tx.pending_mutations()[0]);
+  finalized_tx.resolve_mutation_for_undo(0, 0);
+  page = pool.fetch_page(page_c);
+  EXPECT(page->lsn() == 0 && page->data()[0] == std::byte{0});
+  EXPECT(pool.unpin_page(page_c, false));
+  EXPECT(pool.flush_page(page_c));
+
+  // Same-page history, not global adjacency, supplies the restored PageLSN.
+  auto history_tx = manager.begin();
+  auto& history = history_tx.mutation_context(pool);
+  for (const auto [id, value] : std::vector<std::pair<storage::PageId, unsigned>>{{page_a, 2}, {page_b, 3}, {page_a, 4}}) {
+    history.watch(id);
+    page = pool.fetch_page(id);
+    page->data()[0] = std::byte{static_cast<unsigned char>(value)};
+    history.finish(id, *page);
+    EXPECT(pool.unpin_page(id, true));
+  }
+  history_tx.finalize_next_mutation(10);  // A
+  history_tx.finalize_next_mutation(11);  // B (unrelated)
+  history_tx.finalize_next_mutation(12);  // A
+  wal.durable = 100;
+  const auto& history_mutations = history_tx.pending_mutations();
+  undo_payload(pool, history_mutations[2]);
+  history_tx.resolve_mutation_for_undo(2, 10);
+  page = pool.fetch_page(page_a);
+  EXPECT(page->lsn() == 10 && page->data()[0] == std::byte{2});
+  EXPECT(pool.unpin_page(page_a, false));
+
+  // Unfinalized multi-page mutations resolve in reverse physical order and
+  // release their independent pending gates.
+  auto reverse_tx = manager.begin();
+  auto& reverse = reverse_tx.mutation_context(pool);
+  for (const auto [id, value] : std::vector<std::pair<storage::PageId, unsigned>>{{page_a, 5}, {page_b, 6}}) {
+    reverse.watch(id);
+    page = pool.fetch_page(id);
+    page->data()[1] = std::byte{static_cast<unsigned char>(value)};
+    reverse.finish(id, *page);
+    EXPECT(pool.unpin_page(id, true));
+  }
+  const auto& reverse_mutations = reverse_tx.pending_mutations();
+  try { reverse_tx.resolve_mutation_for_undo(0, 10); EXPECT(false); } catch (const std::logic_error&) { EXPECT(true); }
+  undo_payload(pool, reverse_mutations[1]);
+  reverse_tx.resolve_mutation_for_undo(1, 11);
+  undo_payload(pool, reverse_mutations[0]);
+  reverse_tx.resolve_mutation_for_undo(0, 10);
+  EXPECT(pool.pending_mutation_count(page_a) == 0 && pool.pending_mutation_count(page_b) == 0);
+  page = pool.fetch_page(page_b);
+  EXPECT(page->lsn() == 11 && page->data()[1] == std::byte{0});
+  EXPECT(pool.unpin_page(page_b, false));
+  EXPECT(pool.flush_page(page_a));
+
+  try { pool.resolve_pending_mutation(storage::PageId{}, 0); EXPECT(false); } catch (const std::logic_error&) { EXPECT(true); }
+  std::error_code error;
+  std::filesystem::remove(file, error);
+}
+
 void transaction_owns_and_propagates_mutations() {
   const auto file = path("ddb_wal_architecture_transactions.db");
   storage::PageManager disk(file);
@@ -184,6 +287,7 @@ int main() {
   try {
     durability_gate_all_write_paths();
     shutdown_gate_and_page_lsn_lifecycle();
+    pending_undo_resolution();
     transaction_owns_and_propagates_mutations();
     coordinator_order_and_database_lifecycle();
   } catch (const std::exception& error) {

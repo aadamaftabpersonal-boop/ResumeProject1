@@ -27,6 +27,16 @@ calls `Transaction::finalize_next_mutation(lsn)` in capture order after writing
 each real WAL record; that sets PageLSN and releases the matching pending gate.
 This prerequisite never allocates or invents LSNs.
 
+## Undo PageLSN resolution
+
+Normal `finalize_next_mutation(lsn)` remains a forward-only WAL path and rejects
+zero. Undo uses the separate reverse-only transaction resolution path after it
+has restored a before-image. A still-pending capture uses
+`resolve_pending_mutation(page, restored_lsn)` to release its flush gate; a
+mutation already finalized by WAL uses `restore_page_lsn_after_undo`. Both
+permit zero. The restored LSN is the most recent surviving mutation for the
+same page, never `mutation_lsn - 1`; if none survives, it is zero.
+
 ## Transaction ownership and coordination
 
 `Transaction` is a `MutationFinalizer`. Its lazily-created `MutationContext`

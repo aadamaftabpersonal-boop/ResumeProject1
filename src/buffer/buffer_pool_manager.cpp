@@ -101,6 +101,25 @@ void BufferPoolManager::finalize_pending_mutation(ddb::storage::PageId id, std::
   --frame.pending_mutations;
 }
 
+void BufferPoolManager::resolve_pending_mutation(ddb::storage::PageId id, std::uint64_t restored_page_lsn) {
+  const auto entry = page_table_.find(id);
+  if (entry == page_table_.end()) throw std::logic_error("mutation page is no longer resident");
+  Frame& frame = frames_[entry->second];
+  if (frame.pending_mutations == 0) throw std::logic_error("no pending mutation for page");
+  frame.page.set_lsn(restored_page_lsn);
+  --frame.pending_mutations;
+}
+
+void BufferPoolManager::restore_page_lsn_after_undo(ddb::storage::PageId id, std::uint64_t restored_page_lsn) {
+  const auto entry = page_table_.find(id);
+  if (entry == page_table_.end()) throw std::logic_error("undo page is no longer resident");
+  Frame& frame = frames_[entry->second];
+  if (frame.pending_mutations != 0) {
+    throw std::logic_error("cannot restore PageLSN before pending mutations are resolved");
+  }
+  frame.page.set_lsn(restored_page_lsn);
+}
+
 std::optional<std::uint32_t> BufferPoolManager::pending_mutation_count(ddb::storage::PageId id) const noexcept {
   const auto entry = page_table_.find(id);
   if (entry == page_table_.end()) return std::nullopt;

@@ -57,6 +57,12 @@ class BufferPoolManager final {
   // write-back path until a future coordinator gives the mutation an LSN.
   void mark_mutation_pending(ddb::storage::PageId id);
   void finalize_pending_mutation(ddb::storage::PageId id, std::uint64_t lsn);
+  // Recovery/abort-only counterpart to normal finalization. It deliberately
+  // permits LSN zero because an undone page may have no preceding mutation.
+  void resolve_pending_mutation(ddb::storage::PageId id, std::uint64_t restored_page_lsn);
+  // A mutation already received a WAL LSN before an explicit abort. Its gate
+  // is gone, but physical undo must still restore the page's prior PageLSN.
+  void restore_page_lsn_after_undo(ddb::storage::PageId id, std::uint64_t restored_page_lsn);
   [[nodiscard]] std::optional<std::uint32_t> pending_mutation_count(ddb::storage::PageId id) const noexcept;
   [[nodiscard]] const BufferPoolStats& stats() const noexcept { return stats_; }
   [[nodiscard]] bool validate_invariants() const noexcept;

@@ -14,6 +14,9 @@ mutation to a transaction instead, the buffer pool blocks its dirty page from
 flush and eviction until the future coordinator finalizes that mutation in
 capture order. `Transaction` owns the ordered captured images without copying
 them again, but this foundation does not write WAL records or perform recovery.
+Undo/replay resolution is distinct from normal WAL finalization: after applying
+a before-image, it may restore PageLSN zero and releases the relevant pending
+flush gate without creating another mutation or record.
 
 ## TableHeap integration
 

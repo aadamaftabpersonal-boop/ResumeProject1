@@ -17,7 +17,7 @@ void TransactionCoordinator::commit(Transaction& transaction) {
 void TransactionCoordinator::abort(Transaction& transaction) {
   if (transaction.state() == TransactionState::Committed || transaction.state() == TransactionState::Aborted) return;
   if (participant_ != nullptr) participant_->prepare_abort(transaction);
-  if (transaction.has_unfinalized_mutations()) {
+  if (transaction.has_unresolved_mutations_for_abort()) {
     throw std::logic_error("cannot abort transaction with unresolved physical mutations");
   }
   locks_.abort(transaction);
