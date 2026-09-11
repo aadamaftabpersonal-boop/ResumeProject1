@@ -1,0 +1,13 @@
+#include "ddb/database.h"
+
+namespace ddb {
+
+Database::Database(const std::filesystem::path& path, std::size_t buffer_pool_capacity, DatabaseLifecycle* lifecycle) {
+  if (lifecycle != nullptr) lifecycle->open_wal(path.string() + ".wal");
+  page_manager_ = std::make_unique<storage::PageManager>(path);
+  if (lifecycle != nullptr) lifecycle->recover(*page_manager_);
+  buffer_pool_ = std::make_unique<buffer::BufferPoolManager>(*page_manager_, buffer_pool_capacity,
+      lifecycle == nullptr ? nullptr : lifecycle->wal_durability_provider());
+}
+
+}  // namespace ddb

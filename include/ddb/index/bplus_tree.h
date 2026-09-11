@@ -26,6 +26,7 @@ class BPlusTree final {
   void flush();
 
   [[nodiscard]] ddb::storage::PageId metadata_page_id() const noexcept { return metadata_page_id_; }
+  [[nodiscard]] ddb::buffer::BufferPoolManager& buffer_pool_manager() const noexcept { return buffer_pool_; }
   [[nodiscard]] ddb::storage::PageId root_page_id() const noexcept { return root_page_id_; }
   [[nodiscard]] std::size_t height() const;
   [[nodiscard]] bool validate_invariants() const noexcept;

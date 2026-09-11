@@ -29,16 +29,16 @@ class TransactionalTableHeap final {
  public:
   TransactionalTableHeap(ddb::execution::TableHeap& heap,LockManager& locks):heap_(heap),locks_(locks){}
   [[nodiscard]] std::optional<ddb::execution::Tuple> get(Transaction& tx,ddb::execution::RecordId id)const{if(!locks_.lock_shared(tx,ResourceId(id.page_id)))return{};return heap_.get(id);}
-  [[nodiscard]] std::optional<ddb::execution::RecordId> insert(Transaction& tx,const ddb::execution::Tuple& tuple){if(!locks_.lock_exclusive(tx,ResourceId(heap_.metadata_page_id())))return{};return heap_.insert(tuple);}
-  [[nodiscard]] bool erase(Transaction& tx,ddb::execution::RecordId id){return locks_.lock_exclusive(tx,ResourceId(id.page_id))&&heap_.erase(id);}
+  [[nodiscard]] std::optional<ddb::execution::RecordId> insert(Transaction& tx,const ddb::execution::Tuple& tuple){if(!locks_.lock_exclusive(tx,ResourceId(heap_.metadata_page_id())))return{};return heap_.insert(tuple,&tx.mutation_context(heap_.buffer_pool_manager()));}
+  [[nodiscard]] bool erase(Transaction& tx,ddb::execution::RecordId id){return locks_.lock_exclusive(tx,ResourceId(id.page_id))&&heap_.erase(id,&tx.mutation_context(heap_.buffer_pool_manager()));}
  private: ddb::execution::TableHeap& heap_;LockManager& locks_;
 };
 class TransactionalBPlusTree final {
  public:
   TransactionalBPlusTree(ddb::index::BPlusTree& tree,LockManager& locks):tree_(tree),locks_(locks){}
   [[nodiscard]] bool get_value(Transaction& tx,ddb::index::KeyType key,ddb::index::RecordId& out)const{return locks_.lock_shared(tx,ResourceId(tree_.metadata_page_id()))&&tree_.get_value(key,out);}
-  [[nodiscard]] bool insert(Transaction& tx,ddb::index::KeyType key,ddb::index::RecordId value){return locks_.lock_exclusive(tx,ResourceId(tree_.metadata_page_id()))&&tree_.insert(key,value);}
-  [[nodiscard]] bool remove(Transaction& tx,ddb::index::KeyType key){return locks_.lock_exclusive(tx,ResourceId(tree_.metadata_page_id()))&&tree_.remove(key);}
+  [[nodiscard]] bool insert(Transaction& tx,ddb::index::KeyType key,ddb::index::RecordId value){return locks_.lock_exclusive(tx,ResourceId(tree_.metadata_page_id()))&&tree_.insert(key,value,&tx.mutation_context(tree_.buffer_pool_manager()));}
+  [[nodiscard]] bool remove(Transaction& tx,ddb::index::KeyType key){return locks_.lock_exclusive(tx,ResourceId(tree_.metadata_page_id()))&&tree_.remove(key,&tx.mutation_context(tree_.buffer_pool_manager()));}
  private: ddb::index::BPlusTree& tree_;LockManager& locks_;
 };
 }

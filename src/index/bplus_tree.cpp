@@ -59,8 +59,8 @@ void BPlusTree::write_metadata() {
   Page* page=buffer_pool_.fetch_page(metadata_page_id_); if(!page) throw std::runtime_error("cannot fetch B+ tree metadata");
   if(active_mutations_) active_mutations_->watch(metadata_page_id_);
   page->clear(); std::copy(kMetadataMagic.begin(),kMetadataMagic.end(),page->data()); put_u64(page->data(),8,root_page_id_.value()); put_u16(page->data(),16,config_.leaf_max_keys); put_u16(page->data(),18,config_.internal_max_keys);
+  if(active_mutations_) active_mutations_->finish(metadata_page_id_,*page);
   (void)buffer_pool_.unpin_page(metadata_page_id_,true);
-  if(active_mutations_) active_mutations_->finish(metadata_page_id_);
 }
 
 BPlusTree::Node BPlusTree::read_node(PageId id) const {
@@ -78,8 +78,8 @@ void BPlusTree::write_node(PageId id,const Node& n) {
   Page* p=buffer_pool_.fetch_page(id); if(!p) throw std::runtime_error("cannot fetch B+ tree node for write"); if(active_mutations_) active_mutations_->watch(id); p->clear(); std::byte* d=p->data(); d[0]=std::byte{static_cast<unsigned char>(n.leaf?1:2)}; put_u64(d,4,n.parent.value()); put_u64(d,12,n.next.value()); put_u16(d,20,static_cast<std::uint16_t>(n.keys.size()));
   if(n.leaf) for(std::size_t i=0;i<n.keys.size();++i){const auto at=kHeaderSize+i*kLeafEntrySize; put_u64(d,at,std::bit_cast<std::uint64_t>(n.keys[i])); put_u64(d,at+8,n.values[i].page_id.value()); put_u32(d,at+16,n.values[i].slot_id);}
   else {put_u64(d,kHeaderSize,n.children[0].value()); for(std::size_t i=0;i<n.keys.size();++i){const auto at=kHeaderSize+8+i*kInternalEntrySize; put_u64(d,at,std::bit_cast<std::uint64_t>(n.keys[i])); put_u64(d,at+8,n.children[i+1].value());}}
+  if(active_mutations_) active_mutations_->finish(id,*p);
   (void)buffer_pool_.unpin_page(id,true);
-  if(active_mutations_) active_mutations_->finish(id);
 }
 
 PageId BPlusTree::allocate_node(Node node) { const PageId id=page_manager_.allocate_page(); write_node(id,node); return id; }

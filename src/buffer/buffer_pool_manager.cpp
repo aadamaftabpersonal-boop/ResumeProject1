@@ -6,8 +6,9 @@
 
 namespace ddb::buffer {
 
-BufferPoolManager::BufferPoolManager(ddb::storage::PageManager& page_manager, std::size_t capacity)
-    : page_manager_(page_manager), frames_(capacity) {
+BufferPoolManager::BufferPoolManager(ddb::storage::PageManager& page_manager, std::size_t capacity,
+                                     ddb::storage::WalDurabilityProvider* wal_durability)
+    : page_manager_(page_manager), frames_(capacity), wal_durability_(wal_durability) {
   free_frames_.reserve(capacity);
   for (FrameId id = 0; id < capacity; ++id) {
     free_frames_.push_back(capacity - id - 1U);
@@ -58,14 +59,59 @@ void BufferPoolManager::reset_frame(FrameId frame_id) noexcept {
   frame.pin_count = 0;
   frame.dirty = false;
   frame.occupied = false;
+  frame.pending_mutations = 0;
 }
 
 void BufferPoolManager::write_dirty_frame(FrameId frame_id) {
   Frame& frame = frames_[frame_id];
   if (frame.dirty) {
+    require_mutations_finalized(frame);
+    require_wal_durable(frame);
     page_manager_.write_page(frame.page.id(), frame.page);
     ++stats_.disk_writes;
     frame.dirty = false;
+  }
+}
+
+void BufferPoolManager::require_mutations_finalized(const Frame& frame) const {
+  if (frame.pending_mutations != 0) {
+    throw std::logic_error("page write blocked until captured mutations have PageLSNs");
+  }
+}
+
+void BufferPoolManager::mark_mutation_pending(ddb::storage::PageId id) {
+  const auto entry = page_table_.find(id);
+  if (entry == page_table_.end() || frames_[entry->second].pin_count == 0) {
+    throw std::logic_error("pending mutation requires a pinned page");
+  }
+  Frame& frame = frames_[entry->second];
+  if (frame.pending_mutations == std::numeric_limits<std::uint32_t>::max()) {
+    throw std::overflow_error("too many pending page mutations");
+  }
+  ++frame.pending_mutations;
+}
+
+void BufferPoolManager::finalize_pending_mutation(ddb::storage::PageId id, std::uint64_t lsn) {
+  const auto entry = page_table_.find(id);
+  if (entry == page_table_.end()) throw std::logic_error("mutation page is no longer resident");
+  Frame& frame = frames_[entry->second];
+  if (frame.pending_mutations == 0) throw std::logic_error("no pending mutation for page");
+  if (lsn == 0) throw std::invalid_argument("a finalized mutation requires a nonzero LSN");
+  frame.page.set_lsn(lsn);
+  --frame.pending_mutations;
+}
+
+std::optional<std::uint32_t> BufferPoolManager::pending_mutation_count(ddb::storage::PageId id) const noexcept {
+  const auto entry = page_table_.find(id);
+  if (entry == page_table_.end()) return std::nullopt;
+  return frames_[entry->second].pending_mutations;
+}
+
+void BufferPoolManager::require_wal_durable(const Frame& frame) const {
+  const auto required_lsn = frame.page.lsn();
+  if (required_lsn == 0) return;
+  if (wal_durability_ == nullptr || wal_durability_->durable_lsn() < required_lsn) {
+    throw ddb::storage::WalDurabilityError("page write blocked until WAL is durable through PageLSN");
   }
 }
 
@@ -143,6 +189,7 @@ bool BufferPoolManager::flush_page(ddb::storage::PageId id) {
   const auto entry = page_table_.find(id);
   if (entry == page_table_.end()) return false;
   Frame& frame = frames_[entry->second];
+  if (frame.dirty) { require_mutations_finalized(frame); require_wal_durable(frame); }
   page_manager_.write_page(id, frame.page);
   ++stats_.disk_writes;
   page_manager_.flush();
@@ -168,6 +215,8 @@ void BufferPoolManager::flush_all_pages() {
   for (FrameId frame_id = 0; frame_id < frames_.size(); ++frame_id) {
     Frame& frame = frames_[frame_id];
     if (frame.occupied && frame.dirty) {
+      require_mutations_finalized(frame);
+      require_wal_durable(frame);
       page_manager_.write_page(frame.page.id(), frame.page);
       ++stats_.disk_writes;
     }

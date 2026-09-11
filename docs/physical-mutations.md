@@ -4,6 +4,17 @@
 
 `apply_after_image` and `apply_before_image` fetch, overwrite only payload bytes, dirty, and unpin through `BufferPoolManager`.
 
+## WAL integration boundary
+
+For transactional writes, `MutationContext::finish(page_id, pinned_page)` now
+captures the physical image while the writer still owns its page pin. A future
+WAL finalizer may persist that mutation and return an LSN; the context assigns
+that LSN to the page before it is unpinned dirty. When capture transfers a
+mutation to a transaction instead, the buffer pool blocks its dirty page from
+flush and eviction until the future coordinator finalizes that mutation in
+capture order. `Transaction` owns the ordered captured images without copying
+them again, but this foundation does not write WAL records or perform recovery.
+
 ## TableHeap integration
 
 `TableHeap::create`, `insert`, and `erase` accept an optional `MutationContext`. Insert and erase install it as a scoped active context and restore any prior context with RAII. The context is consulted immediately before and after every physical payload write, in the order the existing algorithm performs those writes:

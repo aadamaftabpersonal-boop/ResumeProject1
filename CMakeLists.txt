@@ -11,9 +11,12 @@ add_library(ddb_storage
   src/storage/page_manager.cpp
   src/storage/physical_mutation.cpp
   src/buffer/buffer_pool_manager.cpp
+  src/database.cpp
   src/index/bplus_tree.cpp
   src/execution/table_heap.cpp
   src/concurrency/lock_manager.cpp
+  src/concurrency/transaction.cpp
+  src/concurrency/transaction_coordinator.cpp
 )
 target_include_directories(ddb_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -113,6 +116,27 @@ add_test(NAME bplus_mutation_tests COMMAND bplus_mutation_tests)
 add_executable(tableheap_mutation_tests tests/tableheap_mutation_tests.cpp)
 target_link_libraries(tableheap_mutation_tests PRIVATE ddb_storage)
 add_test(NAME tableheap_mutation_tests COMMAND tableheap_mutation_tests)
+
+add_executable(wal_architecture_tests tests/wal_architecture_tests.cpp)
+target_link_libraries(wal_architecture_tests PRIVATE ddb_storage)
+add_test(NAME wal_architecture_tests COMMAND wal_architecture_tests)
+
+# Every executable which links the ASan-instrumented storage library must be
+# instrumented too. Keeping this centralized avoids MSVC annotation-mismatch
+# link failures when a new test is added.
+if(DDB_ENABLE_SANITIZERS)
+  foreach(ddb_test_target
+      storage_tests buffer_pool_tests bplus_tree_tests execution_tests
+      transaction_tests page_format_tests mutation_infrastructure_tests
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests)
+    if(MSVC)
+      target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
+    else()
+      target_compile_options(${ddb_test_target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+      target_link_options(${ddb_test_target} PRIVATE -fsanitize=address,undefined)
+    endif()
+  endforeach()
+endif()
 
 add_executable(storage_benchmark benchmarks/storage_benchmark.cpp)
 target_link_libraries(storage_benchmark PRIVATE ddb_storage)

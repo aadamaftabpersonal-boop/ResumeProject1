@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ddb/storage/page_manager.h"
+#include "ddb/storage/wal_durability.h"
 
 namespace ddb::buffer {
 
@@ -29,7 +30,8 @@ struct BufferPoolStats final {
 // A fixed-size, single-threaded cache of persistent pages.
 class BufferPoolManager final {
  public:
-  BufferPoolManager(ddb::storage::PageManager& page_manager, std::size_t capacity);
+  BufferPoolManager(ddb::storage::PageManager& page_manager, std::size_t capacity,
+                    ddb::storage::WalDurabilityProvider* wal_durability = nullptr);
   ~BufferPoolManager() noexcept;
 
   BufferPoolManager(const BufferPoolManager&) = delete;
@@ -51,8 +53,14 @@ class BufferPoolManager final {
   [[nodiscard]] bool contains(ddb::storage::PageId id) const noexcept;
   [[nodiscard]] std::optional<std::uint32_t> pin_count(ddb::storage::PageId id) const noexcept;
   [[nodiscard]] std::optional<bool> is_dirty(ddb::storage::PageId id) const noexcept;
+  // Captured transactional mutations make a page ineligible for every
+  // write-back path until a future coordinator gives the mutation an LSN.
+  void mark_mutation_pending(ddb::storage::PageId id);
+  void finalize_pending_mutation(ddb::storage::PageId id, std::uint64_t lsn);
+  [[nodiscard]] std::optional<std::uint32_t> pending_mutation_count(ddb::storage::PageId id) const noexcept;
   [[nodiscard]] const BufferPoolStats& stats() const noexcept { return stats_; }
   [[nodiscard]] bool validate_invariants() const noexcept;
+  void set_wal_durability_provider(ddb::storage::WalDurabilityProvider* provider) noexcept { wal_durability_ = provider; }
 
  private:
   struct Frame final {
@@ -60,6 +68,7 @@ class BufferPoolManager final {
     std::uint32_t pin_count{0};
     bool dirty{false};
     bool occupied{false};
+    std::uint32_t pending_mutations{0};
   };
 
   [[nodiscard]] std::optional<FrameId> acquire_frame();
@@ -67,6 +76,8 @@ class BufferPoolManager final {
   void remove_from_lru(FrameId frame_id);
   void reset_frame(FrameId frame_id) noexcept;
   void write_dirty_frame(FrameId frame_id);
+  void require_wal_durable(const Frame& frame) const;
+  void require_mutations_finalized(const Frame& frame) const;
 
   ddb::storage::PageManager& page_manager_;
   std::vector<Frame> frames_;
@@ -75,5 +86,6 @@ class BufferPoolManager final {
   std::list<FrameId> lru_;
   std::unordered_map<FrameId, std::list<FrameId>::iterator> lru_positions_;
   BufferPoolStats stats_{};
+  ddb::storage::WalDurabilityProvider* wal_durability_{nullptr};
 };
 }  // namespace ddb::buffer

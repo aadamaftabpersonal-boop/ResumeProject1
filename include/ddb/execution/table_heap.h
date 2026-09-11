@@ -14,6 +14,7 @@ class TableHeap final {
   [[nodiscard]] std::vector<std::pair<RecordId,Tuple>> scan() const;
   [[nodiscard]] const Schema& schema() const noexcept { return schema_; }
   [[nodiscard]] ddb::storage::PageId metadata_page_id() const noexcept { return meta_; }
+  [[nodiscard]] ddb::buffer::BufferPoolManager& buffer_pool_manager() const noexcept { return bp_; }
   [[nodiscard]] bool validate_invariants() const;
   void flush();
  private:
