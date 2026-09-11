@@ -1,8 +1,8 @@
 # WAL/transaction integration architecture
 
-This document establishes the boundaries required by the forthcoming local WAL
-and recovery milestone. It intentionally does **not** implement a WAL file,
-records, logging, recovery, redo, undo, checkpoints, or crash injection.
+This document establishes the boundaries used by the local WAL. Phase 1 now
+implements a persistent WAL and durable commit; recovery, redo, undo,
+checkpoints, and crash injection remain intentionally absent.
 
 ## WAL-before-data
 

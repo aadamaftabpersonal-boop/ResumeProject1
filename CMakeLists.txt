@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(ddb_storage
   src/storage/page_manager.cpp
+  src/storage/log_manager.cpp
   src/storage/physical_mutation.cpp
   src/buffer/buffer_pool_manager.cpp
   src/database.cpp
@@ -121,6 +122,14 @@ add_executable(wal_architecture_tests tests/wal_architecture_tests.cpp)
 target_link_libraries(wal_architecture_tests PRIVATE ddb_storage)
 add_test(NAME wal_architecture_tests COMMAND wal_architecture_tests)
 
+add_executable(wal_format_tests tests/wal_format_tests.cpp)
+target_link_libraries(wal_format_tests PRIVATE ddb_storage)
+add_test(NAME wal_format_tests COMMAND wal_format_tests)
+
+add_executable(wal_transaction_tests tests/wal_transaction_tests.cpp)
+target_link_libraries(wal_transaction_tests PRIVATE ddb_storage)
+add_test(NAME wal_transaction_tests COMMAND wal_transaction_tests)
+
 # Every executable which links the ASan-instrumented storage library must be
 # instrumented too. Keeping this centralized avoids MSVC annotation-mismatch
 # link failures when a new test is added.
@@ -128,7 +137,7 @@ if(DDB_ENABLE_SANITIZERS)
   foreach(ddb_test_target
       storage_tests buffer_pool_tests bplus_tree_tests execution_tests
       transaction_tests page_format_tests mutation_infrastructure_tests
-      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests)
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests)
     if(MSVC)
       target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
     else()

@@ -17,6 +17,12 @@ ddb::storage::MutationContext& Transaction::mutation_context(ddb::buffer::Buffer
 std::optional<std::uint64_t> Transaction::finalize_mutation(ddb::storage::PhysicalMutation mutation) {
   pending_mutations_.push_back(std::move(mutation));
   undo_resolved_.push_back(false);
+  if (log_sink_ != nullptr) {
+    const auto lsn = log_sink_->log_physical_mutation(id_, pending_mutations_.back());
+    if (lsn == 0) throw std::logic_error("WAL mutation logger returned zero LSN");
+    ++finalized_mutations_;
+    return lsn;
+  }
   return std::nullopt;
 }
 
