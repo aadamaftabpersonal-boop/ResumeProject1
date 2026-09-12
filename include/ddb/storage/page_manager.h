@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <vector>
 
 #include "ddb/storage/page.h"
 
@@ -25,6 +26,10 @@ class PageManager final {
   PageManager& operator=(PageManager&&) = delete;
 
   [[nodiscard]] PageId allocate_page();
+  // Logical deallocation retains the physical slot; it is deliberately not reused.
+  void deallocate_page(PageId id);
+  [[nodiscard]] bool is_page_allocated(PageId id) const noexcept;
+  [[nodiscard]] std::uint64_t allocated_page_count() const noexcept { return allocated_page_count_; }
   void read_page(PageId id, Page& page);
   void write_page(PageId id, const Page& page);
   void flush();
@@ -39,5 +44,9 @@ class PageManager final {
   std::filesystem::path path_;
   std::fstream file_;
   std::uint64_t page_count_{0};
+  std::vector<std::byte> allocation_bitmap_;
+  std::uint64_t allocated_page_count_{0};
+  void write_allocation_catalog();
+  void validate_logically_allocated(PageId id) const;
 };
 }  // namespace ddb::storage

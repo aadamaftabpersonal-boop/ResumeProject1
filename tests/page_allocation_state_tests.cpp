@@ -1,0 +1,5 @@
+#include <filesystem>
+#include <iostream>
+#include "ddb/storage/page_manager.h"
+using namespace ddb::storage;
+int main(){const auto p=std::filesystem::temp_directory_path()/"ddb_page_allocation_state.db";std::error_code e;std::filesystem::remove(p,e);try{{PageManager m(p);if(m.page_count()!=0||m.allocated_page_count()!=0)throw std::runtime_error("bad initial catalog");auto a=m.allocate_page(),b=m.allocate_page();if(a!=PageId(0)||b!=PageId(1)||!m.is_page_allocated(a))throw std::runtime_error("bad allocation");m.deallocate_page(a);if(m.is_page_allocated(a)||m.allocated_page_count()!=1)throw std::runtime_error("bad deallocation");Page x;try{m.read_page(a,x);throw std::runtime_error("free page fetched");}catch(const StorageError&){}m.flush();}{PageManager m(p);if(m.page_count()!=2||m.allocated_page_count()!=1||m.is_page_allocated(PageId(0))||!m.is_page_allocated(PageId(1)))throw std::runtime_error("catalog persistence");Page x;m.read_page(PageId(1),x);}std::filesystem::remove(p,e);std::cout<<"All page allocation state tests passed\n";}catch(const std::exception& x){std::cerr<<x.what()<<'\n';return 1;}}
