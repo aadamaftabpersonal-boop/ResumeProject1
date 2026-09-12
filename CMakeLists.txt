@@ -133,6 +133,9 @@ add_test(NAME wal_transaction_tests COMMAND wal_transaction_tests)
 add_executable(wal_allocation_tests tests/wal_allocation_tests.cpp)
 target_link_libraries(wal_allocation_tests PRIVATE ddb_storage)
 add_test(NAME wal_allocation_tests COMMAND wal_allocation_tests)
+add_executable(transactional_allocation_tests tests/transactional_allocation_tests.cpp)
+target_link_libraries(transactional_allocation_tests PRIVATE ddb_storage)
+add_test(NAME transactional_allocation_tests COMMAND transactional_allocation_tests)
 
 add_executable(page_allocation_state_tests tests/page_allocation_state_tests.cpp)
 target_link_libraries(page_allocation_state_tests PRIVATE ddb_storage)
@@ -145,7 +148,7 @@ if(DDB_ENABLE_SANITIZERS)
   foreach(ddb_test_target
       storage_tests buffer_pool_tests bplus_tree_tests execution_tests
       transaction_tests page_format_tests mutation_infrastructure_tests
-      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests page_allocation_state_tests)
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests)
     if(MSVC)
       target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
     else()

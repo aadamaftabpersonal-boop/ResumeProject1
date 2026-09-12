@@ -8,6 +8,7 @@
 #include "ddb/storage/page.h"
 
 namespace ddb::storage {
+class LogManager;
 
 class StorageError : public std::runtime_error {
  public:
@@ -26,6 +27,9 @@ class PageManager final {
   PageManager& operator=(PageManager&&) = delete;
 
   [[nodiscard]] PageId allocate_page();
+  [[nodiscard]] PageId reserve_page();
+  void activate_reserved_page(PageId id);
+  [[nodiscard]] PageId allocate_transactional_page(LogManager&, std::uint64_t transaction_id);
   // Logical deallocation retains the physical slot; it is deliberately not reused.
   void deallocate_page(PageId id);
   [[nodiscard]] bool is_page_allocated(PageId id) const noexcept;

@@ -1,4 +1,5 @@
 #include "ddb/storage/page_manager.h"
+#include "ddb/storage/log_manager.h"
 
 #include <array>
 #include <cstring>
@@ -88,13 +89,20 @@ void PageManager::ensure_stream_good(const char* operation) {
 }
 
 PageId PageManager::allocate_page() {
+  const PageId id=reserve_page(); activate_reserved_page(id); return id;
+}
+
+PageId PageManager::reserve_page() {
   if(page_count_>=kCatalogBits) throw StorageError("allocation catalog capacity exhausted");
   const PageId id(page_count_);
   (void)offset_for(id);
   ++page_count_;
-  try { file_.clear(); file_.seekp(offset_for(id)); Page page(id); std::array<std::byte,kPageSize> raw{};std::memcpy(raw.data(),kMagic,4);put16(raw.data(),4,kPageFormatVersion);put16(raw.data(),6,kPageHeaderSize);put64(raw.data(),8,id.value());put64(raw.data(),16,0);file_.write(reinterpret_cast<const char*>(raw.data()),static_cast<std::streamsize>(raw.size()));ensure_stream_good("write new page"); allocation_bitmap_[id.value()/8]|=std::byte(1U<<(id.value()%8));++allocated_page_count_;write_allocation_catalog(); } catch(...) { --page_count_; throw; }
+  try { file_.clear(); file_.seekp(offset_for(id)); std::array<std::byte,kPageSize> raw{};std::memcpy(raw.data(),kMagic,4);put16(raw.data(),4,kPageFormatVersion);put16(raw.data(),6,kPageHeaderSize);put64(raw.data(),8,id.value());put64(raw.data(),16,0);file_.write(reinterpret_cast<const char*>(raw.data()),static_cast<std::streamsize>(raw.size()));ensure_stream_good("write reserved page"); write_allocation_catalog(); } catch(...) { --page_count_; throw; }
   return id;
 }
+
+void PageManager::activate_reserved_page(PageId id) { validate_allocated(id); if(is_page_allocated(id)) throw StorageError("page is already logically allocated"); allocation_bitmap_[id.value()/8]|=std::byte(1U<<(id.value()%8));++allocated_page_count_;write_allocation_catalog(); }
+PageId PageManager::allocate_transactional_page(LogManager& log, std::uint64_t transaction_id) { const PageId id=reserve_page(); try { (void)log.append_page_allocate(transaction_id,id); log.flush(); activate_reserved_page(id); } catch(...) { throw; } return id; }
 
 void PageManager::deallocate_page(PageId id) { validate_logically_allocated(id); allocation_bitmap_[id.value()/8]&=std::byte(~(1U<<(id.value()%8)));--allocated_page_count_;write_allocation_catalog(); }
 
