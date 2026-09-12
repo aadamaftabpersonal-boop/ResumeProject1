@@ -156,6 +156,12 @@ std::optional<FrameId> BufferPoolManager::acquire_frame() {
 
 ddb::storage::Page* BufferPoolManager::fetch_page(ddb::storage::PageId id) {
   ++stats_.fetches;
+  if (!id.is_valid()) return nullptr;
+  // Check before the cache lookup too: logical deallocation must invalidate a
+  // resident frame rather than letting it bypass PageManager validation.
+  if (!page_manager_.is_page_allocated(id)) {
+    throw ddb::storage::StorageError("cannot fetch logically unallocated page");
+  }
   const auto existing = page_table_.find(id);
   if (existing != page_table_.end()) {
     Frame& frame = frames_[existing->second];
@@ -165,8 +171,6 @@ ddb::storage::Page* BufferPoolManager::fetch_page(ddb::storage::PageId id) {
     ++stats_.cache_hits;
     return &frame.page;
   }
-  if (!id.is_valid()) return nullptr;
-
   const auto frame_id = acquire_frame();
   if (!frame_id.has_value()) return nullptr;
   Frame& frame = frames_[*frame_id];
