@@ -31,7 +31,7 @@ LogManager::~LogManager() noexcept { try { flush(); } catch (...) {} }
 
 std::vector<std::byte> LogManager::encode(const WalRecord& record) {
   require(record.lsn != 0, "WAL LSN must be nonzero");
-  require(record.type >= WalRecordType::Begin && record.type <= WalRecordType::Abort, "invalid WAL record type");
+  require(record.type >= WalRecordType::Begin && record.type <= WalRecordType::PageAllocate, "invalid WAL record type");
   require(record.payload.size() <= kMaxRecordSize - kMinimumRecordSize, "WAL payload is too large");
   const auto length = static_cast<std::uint32_t>(kMinimumRecordSize + record.payload.size());
   std::vector<std::byte> out; out.reserve(length);
@@ -53,7 +53,7 @@ WalRecord LogManager::decode(const std::vector<std::byte>& bytes) {
   std::vector<std::byte> checked(bytes.begin(), bytes.end() - static_cast<std::ptrdiff_t>(kChecksumSize));
   require(checksum(checked) == saved_checksum, "invalid WAL checksum");
   const auto raw_type = std::to_integer<std::uint8_t>(bytes[28]);
-  require(raw_type >= static_cast<std::uint8_t>(WalRecordType::Begin) && raw_type <= static_cast<std::uint8_t>(WalRecordType::Abort), "invalid WAL record type");
+  require(raw_type >= static_cast<std::uint8_t>(WalRecordType::Begin) && raw_type <= static_cast<std::uint8_t>(WalRecordType::PageAllocate), "invalid WAL record type");
   return {get64(bytes.data() + 12), get64(bytes.data() + 20), static_cast<WalRecordType>(raw_type),
       std::vector<std::byte>(bytes.begin() + static_cast<std::ptrdiff_t>(kHeaderSize), bytes.end() - static_cast<std::ptrdiff_t>(kChecksumSize))};
 }
@@ -95,6 +95,9 @@ std::uint64_t LogManager::append_begin(std::uint64_t id) { return append(WalReco
 std::uint64_t LogManager::append_physical_mutation(std::uint64_t id, const PhysicalMutation& mutation) { return append(WalRecordType::PhysicalMutation, id, encode_physical_mutation(mutation)); }
 std::uint64_t LogManager::append_commit(std::uint64_t id) { return append(WalRecordType::Commit, id); }
 std::uint64_t LogManager::append_abort(std::uint64_t id) { return append(WalRecordType::Abort, id); }
+std::vector<std::byte> LogManager::encode_page_allocate(PageId page) { require(page.is_valid(), "invalid WAL allocation page id"); std::vector<std::byte> out; out.reserve(8); put64(out, page.value()); return out; }
+PageId LogManager::decode_page_allocate(const std::vector<std::byte>& bytes) { require(bytes.size()==8, "invalid WAL allocation payload length"); const PageId page(get64(bytes.data())); require(page.is_valid(), "invalid WAL allocation page id"); return page; }
+std::uint64_t LogManager::append_page_allocate(std::uint64_t id, PageId page) { return append(WalRecordType::PageAllocate, id, encode_page_allocate(page)); }
 void LogManager::log_begin(ddb::concurrency::TransactionId id) { (void)append_begin(id); }
 std::uint64_t LogManager::log_physical_mutation(ddb::concurrency::TransactionId id, const PhysicalMutation& mutation) { return append_physical_mutation(id, mutation); }
 void LogManager::prepare_commit(ddb::concurrency::Transaction& transaction) {

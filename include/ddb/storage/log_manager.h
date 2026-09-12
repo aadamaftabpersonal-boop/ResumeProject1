@@ -12,7 +12,7 @@
 
 namespace ddb::storage {
 
-enum class WalRecordType : std::uint8_t { Begin = 1, PhysicalMutation = 2, Commit = 3, Abort = 4 };
+enum class WalRecordType : std::uint8_t { Begin = 1, PhysicalMutation = 2, Commit = 3, Abort = 4, PageAllocate = 5 };
 
 struct WalRecord final {
   std::uint64_t lsn{};
@@ -37,6 +37,7 @@ class LogManager final : public WalDurabilityProvider, public ddb::concurrency::
   [[nodiscard]] std::uint64_t append_physical_mutation(std::uint64_t transaction_id, const PhysicalMutation&);
   [[nodiscard]] std::uint64_t append_commit(std::uint64_t transaction_id);
   [[nodiscard]] std::uint64_t append_abort(std::uint64_t transaction_id);
+  [[nodiscard]] std::uint64_t append_page_allocate(std::uint64_t transaction_id, PageId page_id);
   void log_begin(ddb::concurrency::TransactionId) override;
   [[nodiscard]] std::uint64_t log_physical_mutation(ddb::concurrency::TransactionId, const PhysicalMutation&) override;
   void prepare_commit(ddb::concurrency::Transaction&) override;
@@ -51,6 +52,8 @@ class LogManager final : public WalDurabilityProvider, public ddb::concurrency::
   [[nodiscard]] static WalRecord decode(const std::vector<std::byte>&);
   [[nodiscard]] static std::vector<std::byte> encode_physical_mutation(const PhysicalMutation&);
   [[nodiscard]] static PhysicalMutation decode_physical_mutation(const std::vector<std::byte>&);
+  [[nodiscard]] static std::vector<std::byte> encode_page_allocate(PageId);
+  [[nodiscard]] static PageId decode_page_allocate(const std::vector<std::byte>&);
 
  private:
   [[nodiscard]] std::uint64_t append(WalRecordType, std::uint64_t transaction_id, std::vector<std::byte> payload = {});
