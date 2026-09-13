@@ -14,6 +14,7 @@ add_library(ddb_storage
   src/recovery/recovery_analysis.cpp
   src/recovery/replay_context.cpp
   src/recovery/redo_engine.cpp
+  src/recovery/undo_engine.cpp
   src/buffer/buffer_pool_manager.cpp
   src/database.cpp
   src/index/bplus_tree.cpp
@@ -164,6 +165,10 @@ add_executable(redo_structure_tests tests/redo_structure_tests.cpp)
 target_link_libraries(redo_structure_tests PRIVATE ddb_storage)
 add_test(NAME redo_structure_tests COMMAND redo_structure_tests)
 
+add_executable(undo_tests tests/undo_tests.cpp)
+target_link_libraries(undo_tests PRIVATE ddb_storage)
+add_test(NAME undo_tests COMMAND undo_tests)
+
 # Every executable which links the ASan-instrumented storage library must be
 # instrumented too. Keeping this centralized avoids MSVC annotation-mismatch
 # link failures when a new test is added.
@@ -171,7 +176,7 @@ if(DDB_ENABLE_SANITIZERS)
   foreach(ddb_test_target
       storage_tests buffer_pool_tests bplus_tree_tests execution_tests
       transaction_tests page_format_tests mutation_infrastructure_tests
-      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests transactional_structure_allocation_tests recovery_analysis_tests replay_infrastructure_tests redo_tests redo_structure_tests)
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests transactional_structure_allocation_tests recovery_analysis_tests replay_infrastructure_tests redo_tests redo_structure_tests undo_tests)
     if(MSVC)
       target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
     else()
@@ -211,3 +216,6 @@ target_link_libraries(lock_manager_benchmark PRIVATE ddb_storage)
 
 add_executable(redo_benchmark benchmarks/redo_benchmark.cpp)
 target_link_libraries(redo_benchmark PRIVATE ddb_storage)
+
+add_executable(undo_benchmark benchmarks/undo_benchmark.cpp)
+target_link_libraries(undo_benchmark PRIVATE ddb_storage)

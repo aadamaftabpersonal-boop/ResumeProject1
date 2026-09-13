@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_set>
 #include "ddb/storage/physical_mutation.h"
 #include "ddb/buffer/buffer_pool_manager.h"
 #include "ddb/storage/page_manager.h"
@@ -19,9 +20,12 @@ class ReplayContext final {
   // Returns true when the after-image was applied; false means PageLSN made it
   // idempotently unnecessary. It never appends WAL.
   [[nodiscard]] bool redo_physical_mutation(std::uint64_t lsn, const ddb::storage::PhysicalMutation&);
+  [[nodiscard]] bool undo_physical_mutation(std::uint64_t lsn, std::uint64_t restored_lsn, const ddb::storage::PhysicalMutation&);
+  [[nodiscard]] bool undo_page_allocate(ddb::storage::PageId);
  private:
   ddb::storage::PageManager& pages_;
   ddb::buffer::BufferPoolManager& pool_;
   bool active_{true};
+  std::unordered_set<std::uint64_t> undone_lsns_;
 };
 }  // namespace ddb::recovery
