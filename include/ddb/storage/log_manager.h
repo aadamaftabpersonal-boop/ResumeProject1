@@ -50,6 +50,9 @@ class LogManager final : public WalDurabilityProvider, public ddb::concurrency::
   [[nodiscard]] std::uint64_t durable_lsn() const noexcept override;
   [[nodiscard]] std::uint64_t next_lsn() const noexcept;
   [[nodiscard]] std::vector<WalRecord> records() const;
+  // Read-only scanner used by recovery analysis. It accepts only a truncated
+  // suffix at EOF; malformed complete records are rejected.
+  [[nodiscard]] static std::vector<WalRecord> read_records(const std::filesystem::path&);
   [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
 
   [[nodiscard]] static std::vector<std::byte> encode(const WalRecord&);

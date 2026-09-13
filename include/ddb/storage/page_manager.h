@@ -7,6 +7,7 @@
 
 #include "ddb/storage/page.h"
 
+namespace ddb::recovery { class ReplayContext; }
 namespace ddb::storage {
 class LogManager;
 
@@ -41,6 +42,10 @@ class PageManager final {
   [[nodiscard]] std::uint64_t page_count() const noexcept { return page_count_; }
 
  private:
+  friend class ddb::recovery::ReplayContext;
+  // Creates exactly the next physical page and deliberately leaves its logical
+  // allocation bit clear. Future allocation REDO decides whether to activate.
+  void materialize_page_for_recovery(PageId id);
   [[nodiscard]] std::streamoff offset_for(PageId id) const;
   void validate_allocated(PageId id) const;
   void ensure_stream_good(const char* operation);

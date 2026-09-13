@@ -1,11 +1,11 @@
 # Local WAL and recovery
 
-## Phase 1 status
+## Phase 2A status
 
-This document describes Phase 1 only. Persistent local WAL, physical mutation
-records, PageLSN assignment, and durable commit are implemented. Analysis,
-REDO, UNDO, crash recovery, checkpoints, and crash injection are deliberately
-not implemented yet.
+Persistent local WAL, physical mutation records, PageLSN assignment, durable
+commit, and read-only recovery analysis are implemented. REDO, UNDO, automatic
+crash recovery, checkpoints, and crash injection are deliberately not
+implemented yet. See `recovery-analysis.md` for analysis and replay scaffolding.
 
 ## File and format
 
@@ -36,5 +36,5 @@ the transaction committed or releases locks.
 ## Current limitations
 
 Explicit abort records can be emitted only for transactions with no unresolved
-physical mutations. Physical abort undo and all crash recovery are Phase 2
-work; no recovery claim is made by this phase.
+physical mutations. Physical abort undo and automatic crash recovery remain
+future work; no automatic recovery claim is made by this phase.

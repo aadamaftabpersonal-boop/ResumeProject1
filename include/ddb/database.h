@@ -5,6 +5,7 @@
 #include "ddb/buffer/buffer_pool_manager.h"
 #include "ddb/concurrency/transaction.h"
 #include "ddb/storage/log_manager.h"
+#include "ddb/recovery/recovery_analysis.h"
 
 namespace ddb {
 
@@ -21,6 +22,7 @@ class DatabaseLifecycle {
 class Database final {
  public:
   Database(const std::filesystem::path&, std::size_t buffer_pool_capacity, DatabaseLifecycle* = nullptr);
+  [[nodiscard]] static recovery::RecoveryState analyze_wal(const std::filesystem::path& database_path);
   [[nodiscard]] storage::PageManager& page_manager() noexcept { return *page_manager_; }
   [[nodiscard]] buffer::BufferPoolManager& buffer_pool() noexcept { return *buffer_pool_; }
   [[nodiscard]] concurrency::TransactionManager& transaction_manager() noexcept { return *transaction_manager_; }

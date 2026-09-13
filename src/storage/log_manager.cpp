@@ -54,7 +54,8 @@ WalRecord LogManager::decode(const std::vector<std::byte>& bytes) {
   require(checksum(checked) == saved_checksum, "invalid WAL checksum");
   const auto raw_type = std::to_integer<std::uint8_t>(bytes[28]);
   require(raw_type >= static_cast<std::uint8_t>(WalRecordType::Begin) && raw_type <= static_cast<std::uint8_t>(WalRecordType::PageAllocate), "invalid WAL record type");
-  return {get64(bytes.data() + 12), get64(bytes.data() + 20), static_cast<WalRecordType>(raw_type),
+  const auto lsn = get64(bytes.data() + 12); require(lsn != 0, "invalid WAL LSN");
+  return {lsn, get64(bytes.data() + 20), static_cast<WalRecordType>(raw_type),
       std::vector<std::byte>(bytes.begin() + static_cast<std::ptrdiff_t>(kHeaderSize), bytes.end() - static_cast<std::ptrdiff_t>(kChecksumSize))};
 }
 
@@ -123,7 +124,11 @@ std::uint64_t LogManager::durable_lsn() const noexcept { std::lock_guard guard(m
 std::uint64_t LogManager::next_lsn() const noexcept { std::lock_guard guard(mutex_); return next_lsn_; }
 
 std::vector<WalRecord> LogManager::records() const {
-  std::lock_guard guard(mutex_); std::ifstream input(path_, std::ios::binary); if (!input) throw WalError("cannot read WAL file");
+  std::lock_guard guard(mutex_); return read_records(path_);
+}
+
+std::vector<WalRecord> LogManager::read_records(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary); if (!input) throw WalError("cannot read WAL file");
   std::vector<WalRecord> out; for (;;) { std::array<std::byte, kHeaderSize> header{}; input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size())); const auto count = input.gcount(); if (count == 0) break; if (count != static_cast<std::streamsize>(header.size())) break;
     const auto length = get32(header.data() + 8); if (length < kMinimumRecordSize || length > kMaxRecordSize) throw WalError("invalid WAL record length"); std::vector<std::byte> raw(header.begin(), header.end()); raw.resize(length); input.read(reinterpret_cast<char*>(raw.data() + kHeaderSize), static_cast<std::streamsize>(length - kHeaderSize)); if (input.gcount() != static_cast<std::streamsize>(length - kHeaderSize)) break;
     auto record = decode(raw); if (!out.empty() && record.lsn <= out.back().lsn) throw WalError("non-monotonic WAL LSN"); out.push_back(std::move(record)); }

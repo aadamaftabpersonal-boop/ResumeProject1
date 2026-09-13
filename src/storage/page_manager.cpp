@@ -101,6 +101,14 @@ PageId PageManager::reserve_page() {
   return id;
 }
 
+void PageManager::materialize_page_for_recovery(PageId id) {
+  if (!id.is_valid()) throw StorageError("invalid recovery page id");
+  if (id.value() < page_count_) throw StorageError("recovery page already physically exists");
+  if (id.value() > page_count_) throw StorageError("recovery page would create a physical gap");
+  const PageId materialized = reserve_page();
+  if (materialized != id) throw StorageError("recovery materialized an unexpected page id");
+}
+
 void PageManager::activate_reserved_page(PageId id) { validate_allocated(id); if(is_page_allocated(id)) throw StorageError("page is already logically allocated"); allocation_bitmap_[id.value()/8]|=std::byte(1U<<(id.value()%8));++allocated_page_count_;write_allocation_catalog(); }
 PageId PageManager::allocate_transactional_page(LogManager& log, std::uint64_t transaction_id) { const PageId id=reserve_page(); try { (void)log.append_page_allocate(transaction_id,id); log.flush(); activate_reserved_page(id); } catch(...) { throw; } return id; }
 
