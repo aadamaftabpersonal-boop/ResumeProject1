@@ -46,6 +46,7 @@ class PageManager final {
   // Creates exactly the next physical page and deliberately leaves its logical
   // allocation bit clear. Future allocation REDO decides whether to activate.
   void materialize_page_for_recovery(PageId id);
+  void validate_physical_page_for_recovery(PageId id);
   [[nodiscard]] std::streamoff offset_for(PageId id) const;
   void validate_allocated(PageId id) const;
   void ensure_stream_good(const char* operation);

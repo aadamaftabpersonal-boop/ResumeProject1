@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ddb/storage/physical_mutation.h"
 #include "ddb/buffer/buffer_pool_manager.h"
 #include "ddb/storage/page_manager.h"
 
@@ -13,7 +14,11 @@ class ReplayContext final {
   ReplayContext(const ReplayContext&) = delete;
   ReplayContext& operator=(const ReplayContext&) = delete;
   [[nodiscard]] bool active() const noexcept { return active_; }
-  void materialize_allocation_target(ddb::storage::PageId);
+  // Returns true only when a physical slot was created during this call.
+  [[nodiscard]] bool redo_page_allocate(ddb::storage::PageId);
+  // Returns true when the after-image was applied; false means PageLSN made it
+  // idempotently unnecessary. It never appends WAL.
+  [[nodiscard]] bool redo_physical_mutation(std::uint64_t lsn, const ddb::storage::PhysicalMutation&);
  private:
   ddb::storage::PageManager& pages_;
   ddb::buffer::BufferPoolManager& pool_;
