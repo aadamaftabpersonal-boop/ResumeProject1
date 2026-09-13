@@ -6,6 +6,8 @@
 #include <vector>
 #include "ddb/storage/physical_mutation.h"
 
+namespace ddb::storage { class PageManager; }
+
 namespace ddb::concurrency {
 using TransactionId = std::uint64_t;
 enum class TransactionState : std::uint8_t { Growing, Shrinking, Committed, Aborted };
@@ -15,6 +17,9 @@ class TransactionLogSink {
   virtual ~TransactionLogSink() = default;
   virtual void log_begin(TransactionId) = 0;
   [[nodiscard]] virtual std::uint64_t log_physical_mutation(TransactionId, const ddb::storage::PhysicalMutation&) = 0;
+  // Delegates to the storage-owned transactional allocator so transaction
+  // clients cannot accidentally reorder reserve/WAL-durability/activation.
+  [[nodiscard]] virtual ddb::storage::PageId allocate_page(ddb::storage::PageManager&, TransactionId) = 0;
 };
 
 class Transaction final : public ddb::storage::MutationFinalizer {
@@ -22,6 +27,7 @@ class Transaction final : public ddb::storage::MutationFinalizer {
   [[nodiscard]] TransactionId id() const noexcept { return id_; }
   [[nodiscard]] TransactionState state() const noexcept { return state_.load(); }
   [[nodiscard]] ddb::storage::MutationContext& mutation_context(ddb::buffer::BufferPoolManager&);
+  [[nodiscard]] ddb::storage::PageId allocate_page(ddb::storage::PageManager&);
   [[nodiscard]] const std::vector<ddb::storage::PhysicalMutation>& pending_mutations() const noexcept { return pending_mutations_; }
   [[nodiscard]] bool has_unfinalized_mutations() const noexcept;
   [[nodiscard]] bool has_unresolved_mutations_for_abort() const noexcept;

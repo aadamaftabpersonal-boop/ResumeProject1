@@ -8,6 +8,8 @@
 #include "ddb/buffer/buffer_pool_manager.h"
 #include "ddb/storage/physical_mutation.h"
 
+namespace ddb::concurrency { class Transaction; }
+
 namespace ddb::index {
 using KeyType = std::int64_t;
 struct RecordId final { ddb::storage::PageId page_id; std::uint32_t slot_id; friend bool operator==(RecordId, RecordId) = default; };
@@ -17,11 +19,14 @@ class BPlusTree final {
  public:
   // Creates the metadata and initial empty root; returns the metadata page ID needed to reopen.
   [[nodiscard]] static ddb::storage::PageId create(ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, BPlusTreeConfig = {});
+  [[nodiscard]] static ddb::storage::PageId create(ddb::concurrency::Transaction&, ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, BPlusTreeConfig = {});
   BPlusTree(ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, ddb::storage::PageId metadata_page);
 
   [[nodiscard]] bool get_value(KeyType key, RecordId& result) const;
   [[nodiscard]] bool insert(KeyType key, RecordId value, ddb::storage::MutationContext* mutations = nullptr);  // false on duplicate
+  [[nodiscard]] bool insert(ddb::concurrency::Transaction&, KeyType key, RecordId value);  // false on duplicate
   [[nodiscard]] bool remove(KeyType key, ddb::storage::MutationContext* mutations = nullptr);                  // false if absent
+  [[nodiscard]] bool remove(ddb::concurrency::Transaction&, KeyType key);                                      // false if absent
   [[nodiscard]] std::vector<std::pair<KeyType, RecordId>> scan(KeyType lower, KeyType upper) const;
   void flush();
 
@@ -52,5 +57,6 @@ class BPlusTree final {
   ddb::storage::PageId root_page_id_;
   BPlusTreeConfig config_;
   ddb::storage::MutationContext* active_mutations_{nullptr};
+  ddb::concurrency::Transaction* active_transaction_{nullptr};
 };
 }  // namespace ddb::index

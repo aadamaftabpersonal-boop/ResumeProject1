@@ -1,4 +1,5 @@
 #include "ddb/index/bplus_tree.h"
+#include "ddb/concurrency/transaction.h"
 
 #include <algorithm>
 #include <bit>
@@ -44,6 +45,20 @@ PageId BPlusTree::create(ddb::storage::PageManager& pm, ddb::buffer::BufferPoolM
   return metadata;
 }
 
+PageId BPlusTree::create(ddb::concurrency::Transaction& transaction, ddb::storage::PageManager& pm, ddb::buffer::BufferPoolManager& bp, BPlusTreeConfig config) {
+  if (config.leaf_max_keys < 2 || config.internal_max_keys < 2 ||
+      kHeaderSize + static_cast<std::size_t>(config.leaf_max_keys) * kLeafEntrySize > ddb::storage::kPagePayloadSize ||
+      kHeaderSize + 8 + static_cast<std::size_t>(config.internal_max_keys) * kInternalEntrySize > ddb::storage::kPagePayloadSize) throw std::invalid_argument("invalid B+ tree node capacity");
+  const PageId metadata = transaction.allocate_page(pm);
+  const PageId root = transaction.allocate_page(pm);
+  auto& mutations = transaction.mutation_context(bp);
+  Page* meta = bp.fetch_page(metadata); if (!meta) throw std::runtime_error("cannot fetch new B+ tree metadata");
+  mutations.watch(metadata); meta->clear(); std::copy(kMetadataMagic.begin(),kMetadataMagic.end(),meta->data()); put_u64(meta->data(),8,root.value()); put_u16(meta->data(),16,config.leaf_max_keys); put_u16(meta->data(),18,config.internal_max_keys); mutations.finish(metadata,*meta); (void)bp.unpin_page(metadata,true);
+  BPlusTree tree(pm, bp, metadata); tree.active_transaction_ = &transaction; tree.active_mutations_ = &mutations;
+  Node empty; empty.leaf = true; empty.parent = PageId{}; empty.next = PageId{}; tree.write_node(root, empty);
+  return metadata;
+}
+
 BPlusTree::BPlusTree(ddb::storage::PageManager& pm, ddb::buffer::BufferPoolManager& bp, PageId metadata)
     : page_manager_(pm), buffer_pool_(bp), metadata_page_id_(metadata), root_page_id_(), config_() {
   Page* page = buffer_pool_.fetch_page(metadata_page_id_);
@@ -82,7 +97,7 @@ void BPlusTree::write_node(PageId id,const Node& n) {
   (void)buffer_pool_.unpin_page(id,true);
 }
 
-PageId BPlusTree::allocate_node(Node node) { const PageId id=page_manager_.allocate_page(); write_node(id,node); return id; }
+PageId BPlusTree::allocate_node(Node node) { const PageId id=active_transaction_ ? active_transaction_->allocate_page(page_manager_) : page_manager_.allocate_page(); write_node(id,node); return id; }
 PageId BPlusTree::find_leaf(KeyType key) const { PageId id=root_page_id_; for(;;){Node n=read_node(id); if(n.leaf)return id; id=n.children[static_cast<std::size_t>(std::upper_bound(n.keys.begin(),n.keys.end(),key)-n.keys.begin())];} }
 bool BPlusTree::get_value(KeyType key,RecordId& out) const { Node leaf=read_node(find_leaf(key)); const auto it=std::lower_bound(leaf.keys.begin(),leaf.keys.end(),key); if(it==leaf.keys.end()||*it!=key)return false; out=leaf.values[static_cast<std::size_t>(it-leaf.keys.begin())]; return true; }
 
@@ -94,7 +109,8 @@ void BPlusTree::insert_into_parent(PageId left,KeyType sep,PageId right) {
   const std::size_t mid=parent.keys.size()/2; const KeyType promote=parent.keys[mid]; Node sibling; sibling.leaf=false; sibling.parent=parent.parent; sibling.keys.assign(parent.keys.begin()+static_cast<std::ptrdiff_t>(mid+1),parent.keys.end()); sibling.children.assign(parent.children.begin()+static_cast<std::ptrdiff_t>(mid+1),parent.children.end()); parent.keys.resize(mid); parent.children.resize(mid+1); const PageId sid=allocate_node(sibling); write_node(pid,parent); for(PageId child:sibling.children)set_parent(child,sid); insert_into_parent(pid,promote,sid);
 }
 
-bool BPlusTree::insert(KeyType key,RecordId value,ddb::storage::MutationContext* mutations) { struct Scope{BPlusTree& tree;ddb::storage::MutationContext* previous;~Scope(){tree.active_mutations_=previous;}} scope{*this,active_mutations_};active_mutations_=mutations;return insert_impl(key,value);}
+bool BPlusTree::insert(KeyType key,RecordId value,ddb::storage::MutationContext* mutations) { struct Scope{BPlusTree& tree;ddb::storage::MutationContext* mutations;ddb::concurrency::Transaction* transaction;~Scope(){tree.active_mutations_=mutations;tree.active_transaction_=transaction;}} scope{*this,active_mutations_,active_transaction_};active_mutations_=mutations;active_transaction_=nullptr;return insert_impl(key,value);}
+bool BPlusTree::insert(ddb::concurrency::Transaction& transaction, KeyType key, RecordId value) { struct Scope{BPlusTree& tree; ddb::storage::MutationContext* mutations; ddb::concurrency::Transaction* transaction; ~Scope(){tree.active_mutations_=mutations;tree.active_transaction_=transaction;}} scope{*this,active_mutations_,active_transaction_}; active_transaction_=&transaction; active_mutations_=&transaction.mutation_context(buffer_pool_); return insert_impl(key,value); }
 bool BPlusTree::insert_impl(KeyType key,RecordId value) { const PageId id=find_leaf(key); Node leaf=read_node(id); const auto it=std::lower_bound(leaf.keys.begin(),leaf.keys.end(),key); const auto at=static_cast<std::size_t>(it-leaf.keys.begin()); if(it!=leaf.keys.end()&&*it==key)return false; leaf.keys.insert(it,key); leaf.values.insert(leaf.values.begin()+static_cast<std::ptrdiff_t>(at),value); if(leaf.keys.size()<=config_.leaf_max_keys){write_node(id,leaf); if(at==0)update_parent_separator(id,key); return true;} const std::size_t split=leaf.keys.size()/2; Node right; right.leaf=true; right.parent=leaf.parent; right.next=leaf.next; right.keys.assign(leaf.keys.begin()+static_cast<std::ptrdiff_t>(split),leaf.keys.end()); right.values.assign(leaf.values.begin()+static_cast<std::ptrdiff_t>(split),leaf.values.end()); leaf.keys.resize(split); leaf.values.resize(split); const PageId rid=allocate_node(right); leaf.next=rid; write_node(id,leaf); insert_into_parent(id,right.keys.front(),rid); return true; }
 
 void BPlusTree::update_parent_separator(PageId child,KeyType first){
@@ -105,7 +121,8 @@ void BPlusTree::update_parent_separator(PageId child,KeyType first){
   if(idx>0){p.keys[idx-1]=first;write_node(n.parent,p);}
   else { update_parent_separator(n.parent,first); }
 }
-bool BPlusTree::remove(KeyType key,ddb::storage::MutationContext* mutations) { struct Scope{BPlusTree& tree;ddb::storage::MutationContext* previous;~Scope(){tree.active_mutations_=previous;}} scope{*this,active_mutations_};active_mutations_=mutations;return remove_impl(key);}
+bool BPlusTree::remove(KeyType key,ddb::storage::MutationContext* mutations) { struct Scope{BPlusTree& tree;ddb::storage::MutationContext* mutations;ddb::concurrency::Transaction* transaction;~Scope(){tree.active_mutations_=mutations;tree.active_transaction_=transaction;}} scope{*this,active_mutations_,active_transaction_};active_mutations_=mutations;active_transaction_=nullptr;return remove_impl(key);}
+bool BPlusTree::remove(ddb::concurrency::Transaction& transaction, KeyType key) { struct Scope{BPlusTree& tree; ddb::storage::MutationContext* mutations; ddb::concurrency::Transaction* transaction; ~Scope(){tree.active_mutations_=mutations;tree.active_transaction_=transaction;}} scope{*this,active_mutations_,active_transaction_}; active_transaction_=&transaction; active_mutations_=&transaction.mutation_context(buffer_pool_); return remove_impl(key); }
 bool BPlusTree::remove_impl(KeyType key) { const PageId id=find_leaf(key); Node leaf=read_node(id); const auto it=std::lower_bound(leaf.keys.begin(),leaf.keys.end(),key); if(it==leaf.keys.end()||*it!=key)return false; const auto idx=static_cast<std::size_t>(it-leaf.keys.begin()); leaf.keys.erase(it); leaf.values.erase(leaf.values.begin()+static_cast<std::ptrdiff_t>(idx)); if(id==root_page_id_){write_node(id,leaf);return true;} if(leaf.keys.size()>=(config_.leaf_max_keys+1)/2){write_node(id,leaf);if(idx==0&&!leaf.keys.empty())update_parent_separator(id,leaf.keys.front());return true;} write_node(id,leaf); rebalance_leaf(id);return true; }
 
 void BPlusTree::rebalance_leaf(PageId id){Node n=read_node(id); Node p=read_node(n.parent); const auto pos=std::find(p.children.begin(),p.children.end(),id); const auto idx=static_cast<std::size_t>(pos-p.children.begin()); const std::size_t min=(config_.leaf_max_keys+1)/2; if(idx>0){const PageId lid=p.children[idx-1];Node l=read_node(lid);if(l.keys.size()>min){n.keys.insert(n.keys.begin(),l.keys.back());n.values.insert(n.values.begin(),l.values.back());l.keys.pop_back();l.values.pop_back();p.keys[idx-1]=n.keys.front();write_node(lid,l);write_node(id,n);write_node(n.parent,p);return;} l.keys.insert(l.keys.end(),n.keys.begin(),n.keys.end());l.values.insert(l.values.end(),n.values.begin(),n.values.end());l.next=n.next;p.keys.erase(p.keys.begin()+static_cast<std::ptrdiff_t>(idx-1));p.children.erase(p.children.begin()+static_cast<std::ptrdiff_t>(idx));write_node(lid,l);write_node(n.parent,p);rebalance_internal(n.parent);return;} const PageId rid=p.children[idx+1];Node r=read_node(rid);if(r.keys.size()>min){n.keys.push_back(r.keys.front());n.values.push_back(r.values.front());r.keys.erase(r.keys.begin());r.values.erase(r.values.begin());p.keys[idx]=r.keys.front();write_node(id,n);write_node(rid,r);write_node(n.parent,p);update_parent_separator(n.parent,n.keys.front());return;} n.keys.insert(n.keys.end(),r.keys.begin(),r.keys.end());n.values.insert(n.values.end(),r.values.begin(),r.values.end());n.next=r.next;p.keys.erase(p.keys.begin()+static_cast<std::ptrdiff_t>(idx));p.children.erase(p.children.begin()+static_cast<std::ptrdiff_t>(idx+1));write_node(id,n);write_node(n.parent,p);update_parent_separator(n.parent,n.keys.front());rebalance_internal(n.parent);}

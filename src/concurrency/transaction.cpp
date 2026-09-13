@@ -1,4 +1,5 @@
 #include "ddb/concurrency/transaction.h"
+#include "ddb/storage/page_manager.h"
 
 #include <stdexcept>
 
@@ -12,6 +13,10 @@ ddb::storage::MutationContext& Transaction::mutation_context(ddb::buffer::Buffer
     throw std::logic_error("a transaction cannot span buffer pools");
   }
   return *mutation_context_;
+}
+
+ddb::storage::PageId Transaction::allocate_page(ddb::storage::PageManager& pages) {
+  return log_sink_ == nullptr ? pages.allocate_page() : log_sink_->allocate_page(pages, id_);
 }
 
 std::optional<std::uint64_t> Transaction::finalize_mutation(ddb::storage::PhysicalMutation mutation) {

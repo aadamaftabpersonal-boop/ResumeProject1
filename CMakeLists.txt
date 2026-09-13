@@ -141,6 +141,10 @@ add_executable(page_allocation_state_tests tests/page_allocation_state_tests.cpp
 target_link_libraries(page_allocation_state_tests PRIVATE ddb_storage)
 add_test(NAME page_allocation_state_tests COMMAND page_allocation_state_tests)
 
+add_executable(transactional_structure_allocation_tests tests/transactional_structure_allocation_tests.cpp)
+target_link_libraries(transactional_structure_allocation_tests PRIVATE ddb_storage)
+add_test(NAME transactional_structure_allocation_tests COMMAND transactional_structure_allocation_tests)
+
 # Every executable which links the ASan-instrumented storage library must be
 # instrumented too. Keeping this centralized avoids MSVC annotation-mismatch
 # link failures when a new test is added.
@@ -148,7 +152,7 @@ if(DDB_ENABLE_SANITIZERS)
   foreach(ddb_test_target
       storage_tests buffer_pool_tests bplus_tree_tests execution_tests
       transaction_tests page_format_tests mutation_infrastructure_tests
-      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests)
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests transactional_structure_allocation_tests)
     if(MSVC)
       target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
     else()

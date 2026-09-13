@@ -3,14 +3,18 @@
 #include "ddb/execution/tuple.h"
 #include "ddb/buffer/buffer_pool_manager.h"
 #include "ddb/storage/physical_mutation.h"
+namespace ddb::concurrency { class Transaction; }
 namespace ddb::execution {
 class TableHeap final {
  public:
   static ddb::storage::PageId create(ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, const Schema&, ddb::storage::MutationContext* mutations = nullptr);
+  static ddb::storage::PageId create(ddb::concurrency::Transaction&, ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, const Schema&);
   TableHeap(ddb::storage::PageManager&, ddb::buffer::BufferPoolManager&, ddb::storage::PageId metadata, Schema schema);
   [[nodiscard]] std::optional<RecordId> insert(const Tuple& tuple, ddb::storage::MutationContext* mutations = nullptr);
+  [[nodiscard]] std::optional<RecordId> insert(ddb::concurrency::Transaction&, const Tuple& tuple);
   [[nodiscard]] std::optional<Tuple> get(RecordId) const;
   [[nodiscard]] bool erase(RecordId, ddb::storage::MutationContext* mutations = nullptr);
+  [[nodiscard]] bool erase(ddb::concurrency::Transaction&, RecordId);
   [[nodiscard]] std::vector<std::pair<RecordId,Tuple>> scan() const;
   [[nodiscard]] const Schema& schema() const noexcept { return schema_; }
   [[nodiscard]] ddb::storage::PageId metadata_page_id() const noexcept { return meta_; }
@@ -25,5 +29,6 @@ class TableHeap final {
   [[nodiscard]] bool erase_impl(RecordId);
   ddb::storage::PageManager& pm_; ddb::buffer::BufferPoolManager& bp_; ddb::storage::PageId meta_; Schema schema_; ddb::storage::PageId first_{}; ddb::storage::PageId last_{};
   ddb::storage::MutationContext* active_mutations_{nullptr};
+  ddb::concurrency::Transaction* active_transaction_{nullptr};
 };
 }

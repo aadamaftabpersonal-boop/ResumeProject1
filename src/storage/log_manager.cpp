@@ -100,6 +100,7 @@ PageId LogManager::decode_page_allocate(const std::vector<std::byte>& bytes) { r
 std::uint64_t LogManager::append_page_allocate(std::uint64_t id, PageId page) { return append(WalRecordType::PageAllocate, id, encode_page_allocate(page)); }
 void LogManager::log_begin(ddb::concurrency::TransactionId id) { (void)append_begin(id); }
 std::uint64_t LogManager::log_physical_mutation(ddb::concurrency::TransactionId id, const PhysicalMutation& mutation) { return append_physical_mutation(id, mutation); }
+PageId LogManager::allocate_page(PageManager& pages, ddb::concurrency::TransactionId id) { return pages.allocate_transactional_page(*this, id); }
 void LogManager::prepare_commit(ddb::concurrency::Transaction& transaction) {
   if (transaction.has_unfinalized_mutations()) throw WalError("cannot commit transaction with unlogged mutations");
   (void)append_commit(transaction.id()); flush();
@@ -109,7 +110,7 @@ void LogManager::prepare_abort(ddb::concurrency::Transaction& transaction) {
   (void)append_abort(transaction.id()); flush();
 }
 void LogManager::flush() {
-  std::lock_guard guard(mutex_); file_.flush(); if (!file_) throw WalError("WAL flush failed");
+  std::lock_guard guard(mutex_); if (fail_next_flush_) { fail_next_flush_ = false; throw WalError("forced WAL flush failure"); } file_.flush(); if (!file_) throw WalError("WAL flush failed");
 #ifdef _WIN32
   const HANDLE handle = CreateFileW(path_.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (handle == INVALID_HANDLE_VALUE) throw WalError("cannot open WAL for durable flush");

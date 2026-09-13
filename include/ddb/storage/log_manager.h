@@ -40,9 +40,13 @@ class LogManager final : public WalDurabilityProvider, public ddb::concurrency::
   [[nodiscard]] std::uint64_t append_page_allocate(std::uint64_t transaction_id, PageId page_id);
   void log_begin(ddb::concurrency::TransactionId) override;
   [[nodiscard]] std::uint64_t log_physical_mutation(ddb::concurrency::TransactionId, const PhysicalMutation&) override;
+  [[nodiscard]] PageId allocate_page(PageManager&, ddb::concurrency::TransactionId) override;
   void prepare_commit(ddb::concurrency::Transaction&) override;
   void prepare_abort(ddb::concurrency::Transaction&) override;
   void flush();
+  // Test-only deterministic failure seam for callers that must prove that a
+  // failed allocation flush never activates the reserved page.
+  void fail_next_flush_for_testing() noexcept { fail_next_flush_ = true; }
   [[nodiscard]] std::uint64_t durable_lsn() const noexcept override;
   [[nodiscard]] std::uint64_t next_lsn() const noexcept;
   [[nodiscard]] std::vector<WalRecord> records() const;
@@ -63,5 +67,6 @@ class LogManager final : public WalDurabilityProvider, public ddb::concurrency::
   std::fstream file_;
   std::uint64_t next_lsn_{1};
   std::uint64_t durable_lsn_{0};
+  bool fail_next_flush_{false};
 };
 }  // namespace ddb::storage
