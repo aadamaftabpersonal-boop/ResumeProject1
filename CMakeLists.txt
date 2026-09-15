@@ -168,6 +168,12 @@ add_test(NAME redo_structure_tests COMMAND redo_structure_tests)
 add_executable(undo_tests tests/undo_tests.cpp)
 target_link_libraries(undo_tests PRIVATE ddb_storage)
 add_test(NAME undo_tests COMMAND undo_tests)
+add_executable(recovery_interleaving_tests tests/recovery_interleaving_tests.cpp)
+target_link_libraries(recovery_interleaving_tests PRIVATE ddb_storage)
+add_test(NAME recovery_interleaving_tests COMMAND recovery_interleaving_tests)
+add_executable(physical_abort_structure_tests tests/physical_abort_structure_tests.cpp)
+target_link_libraries(physical_abort_structure_tests PRIVATE ddb_storage)
+add_test(NAME physical_abort_structure_tests COMMAND physical_abort_structure_tests)
 
 # Every executable which links the ASan-instrumented storage library must be
 # instrumented too. Keeping this centralized avoids MSVC annotation-mismatch
@@ -176,7 +182,7 @@ if(DDB_ENABLE_SANITIZERS)
   foreach(ddb_test_target
       storage_tests buffer_pool_tests bplus_tree_tests execution_tests
       transaction_tests page_format_tests mutation_infrastructure_tests
-      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests transactional_structure_allocation_tests recovery_analysis_tests replay_infrastructure_tests redo_tests redo_structure_tests undo_tests)
+      bplus_mutation_tests tableheap_mutation_tests wal_architecture_tests wal_format_tests wal_transaction_tests wal_allocation_tests transactional_allocation_tests page_allocation_state_tests transactional_structure_allocation_tests recovery_analysis_tests replay_infrastructure_tests redo_tests redo_structure_tests undo_tests recovery_interleaving_tests physical_abort_structure_tests)
     if(MSVC)
       target_compile_options(${ddb_test_target} PRIVATE /fsanitize=address)
     else()

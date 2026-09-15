@@ -39,6 +39,10 @@ class Transaction final : public ddb::storage::MutationFinalizer {
   // Indices must be resolved in reverse capture order. The supplied PageLSN
   // is the most recent surviving mutation LSN for this same page, or zero.
   void resolve_mutation_for_undo(std::size_t mutation_index, std::uint64_t restored_page_lsn);
+  // Runtime abort is a physical rollback, unlike crash recovery's page-history
+  // reconstruction.  The transaction owns both its captured images and the
+  // pre-mutation PageLSNs needed for this reverse operation.
+  void rollback_for_abort();
   [[nodiscard]] std::optional<std::uint64_t> finalize_mutation(ddb::storage::PhysicalMutation mutation) override;
  private:
   friend class TransactionManager;
@@ -53,6 +57,8 @@ class Transaction final : public ddb::storage::MutationFinalizer {
   std::vector<bool> undo_resolved_;
   std::size_t finalized_mutations_{0};
   TransactionLogSink* log_sink_{nullptr};
+  ddb::storage::PageManager* allocation_manager_{nullptr};
+  std::vector<ddb::storage::PageId> allocated_pages_;
 };
 
 class TransactionManager final {

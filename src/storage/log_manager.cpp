@@ -107,7 +107,8 @@ void LogManager::prepare_commit(ddb::concurrency::Transaction& transaction) {
   (void)append_commit(transaction.id()); flush();
 }
 void LogManager::prepare_abort(ddb::concurrency::Transaction& transaction) {
-  if (transaction.has_unresolved_mutations_for_abort()) throw WalError("physical abort undo is not implemented");
+  transaction.rollback_for_abort();
+  if (transaction.has_unresolved_mutations_for_abort()) throw WalError("cannot abort transaction with unresolved physical mutations");
   (void)append_abort(transaction.id()); flush();
 }
 void LogManager::flush() {

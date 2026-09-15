@@ -22,10 +22,15 @@ class ReplayContext final {
   [[nodiscard]] bool redo_physical_mutation(std::uint64_t lsn, const ddb::storage::PhysicalMutation&);
   [[nodiscard]] bool undo_physical_mutation(std::uint64_t lsn, std::uint64_t restored_lsn, const ddb::storage::PhysicalMutation&);
   [[nodiscard]] bool undo_page_allocate(ddb::storage::PageId);
+  // Replaces a page payload with a recovery-derived image without consulting
+  // the normal PageLSN skip rule.  The image has already incorporated all
+  // surviving per-page history.
+  [[nodiscard]] bool reconstruct_page(ddb::storage::PageId, const std::vector<std::byte>&, std::uint64_t page_lsn);
  private:
   ddb::storage::PageManager& pages_;
   ddb::buffer::BufferPoolManager& pool_;
   bool active_{true};
   std::unordered_set<std::uint64_t> undone_lsns_;
+  std::unordered_set<std::uint64_t> reconstructed_pages_;
 };
 }  // namespace ddb::recovery

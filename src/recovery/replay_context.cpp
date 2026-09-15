@@ -36,4 +36,13 @@ bool ReplayContext::undo_physical_mutation(std::uint64_t lsn, std::uint64_t rest
   if(!pool_.unpin_page(mutation.page_id,true))throw std::runtime_error("cannot unpin undo page");undone_lsns_.insert(lsn);return true;
 }
 bool ReplayContext::undo_page_allocate(ddb::storage::PageId id){if(!active_)throw std::logic_error("UNDO requires an active replay context");if(!id.is_valid())throw ddb::storage::StorageError("invalid undo allocation page id");if(id.value()>=pages_.page_count()||!pages_.is_page_allocated(id))return false;if(!pool_.delete_page(id))throw std::logic_error("cannot release pinned undo allocation page");pages_.deallocate_page(id);return true;}
+bool ReplayContext::reconstruct_page(ddb::storage::PageId id,const std::vector<std::byte>& payload,std::uint64_t page_lsn){
+  if(!active_)throw std::logic_error("page reconstruction requires active replay context");
+  if(!id.is_valid()||payload.size()!=ddb::storage::kPagePayloadSize)throw std::invalid_argument("invalid reconstructed page image");
+  if(reconstructed_pages_.contains(id.value()))return false;
+  auto*page=pool_.fetch_page(id);if(!page)throw std::runtime_error("cannot pin reconstructed page");
+  std::memcpy(page->data(),payload.data(),payload.size());page->set_lsn(page_lsn);
+  if(!pool_.unpin_page(id,true))throw std::runtime_error("cannot unpin reconstructed page");
+  reconstructed_pages_.insert(id.value());return true;
+}
 }  // namespace ddb::recovery

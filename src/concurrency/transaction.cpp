@@ -16,7 +16,8 @@ ddb::storage::MutationContext& Transaction::mutation_context(ddb::buffer::Buffer
 }
 
 ddb::storage::PageId Transaction::allocate_page(ddb::storage::PageManager& pages) {
-  return log_sink_ == nullptr ? pages.allocate_page() : log_sink_->allocate_page(pages, id_);
+  const auto page=log_sink_ == nullptr ? pages.allocate_page() : log_sink_->allocate_page(pages, id_);
+  allocation_manager_=&pages; allocated_pages_.push_back(page); return page;
 }
 
 std::optional<std::uint64_t> Transaction::finalize_mutation(ddb::storage::PhysicalMutation mutation) {
@@ -68,6 +69,17 @@ void Transaction::resolve_mutation_for_undo(std::size_t mutation_index, std::uin
     mutation_pool_->resolve_pending_mutation(page_id, restored_page_lsn);
   }
   undo_resolved_[mutation_index] = true;
+}
+
+void Transaction::rollback_for_abort() {
+  if (mutation_context_ != nullptr && mutation_context_->has_unfinished_capture()) throw std::logic_error("cannot abort unfinished physical mutation capture");
+  for (std::size_t index=pending_mutations_.size();index>0;--index) {
+    const auto mutation_index=index-1; if (undo_resolved_[mutation_index]) continue;
+    if (mutation_pool_ == nullptr) throw std::logic_error("transaction mutation has no buffer pool");
+    ddb::storage::apply_before_image(*mutation_pool_,pending_mutations_[mutation_index]);
+    resolve_mutation_for_undo(mutation_index,pending_mutations_[mutation_index].previous_page_lsn);
+  }
+  if (allocation_manager_ != nullptr) for(auto it=allocated_pages_.rbegin();it!=allocated_pages_.rend();++it) if(allocation_manager_->is_page_allocated(*it)) allocation_manager_->deallocate_page(*it);
 }
 
 }  // namespace ddb::concurrency

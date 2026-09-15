@@ -35,6 +35,13 @@ the transaction committed or releases locks.
 
 ## Current limitations
 
-Explicit abort records can be emitted only for transactions with no unresolved
-physical mutations. Physical abort undo and automatic crash recovery remain
-future work; no automatic recovery claim is made by this phase.
+Explicit abort rolls back its live physical mutations and allocations before
+the `ABORT` record is appended and durably flushed. Automatic lifecycle
+integration remains outside this architecture change.
+
+## Abort and page history
+
+Explicit abort first rolls back a live transaction through the BufferPool and
+only then makes its `ABORT` durable. Crash recovery instead reconstructs pages
+from WAL image history, preserving later committed byte changes while removing
+loser changes. Image application in either path emits no WAL.

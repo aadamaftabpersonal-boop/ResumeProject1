@@ -3,15 +3,16 @@
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 namespace ddb::storage {
 namespace {
-std::vector<std::byte> image(ddb::buffer::BufferPoolManager& pool, PageId id) {
+std::pair<std::vector<std::byte>,std::uint64_t> image(ddb::buffer::BufferPoolManager& pool, PageId id) {
   auto* page = pool.fetch_page(id);
   if (!page) throw std::runtime_error("cannot fetch mutation page");
-  std::vector<std::byte> out(page->data(), page->data() + page->payload_size());
+  std::vector<std::byte> out(page->data(), page->data() + page->payload_size()); const auto lsn=page->lsn();
   if (!pool.unpin_page(id, false)) throw std::runtime_error("cannot unpin mutation page");
-  return out;
+  return {std::move(out),lsn};
 }
 
 void apply(ddb::buffer::BufferPoolManager& pool, const PhysicalMutation& mutation,
@@ -29,7 +30,7 @@ MutationContext::MutationContext(ddb::buffer::BufferPoolManager& pool, MutationF
 
 void MutationContext::watch(PageId id) {
   if (!id.is_valid()) throw std::invalid_argument("invalid mutation page");
-  pending_.push_back({id, image(pool_, id)});
+  auto [before,lsn]=image(pool_, id); pending_.push_back({id, std::move(before), lsn});
 }
 
 void MutationContext::capture(PageId id, const std::byte* after, std::size_t size, Page* page) {
@@ -37,7 +38,7 @@ void MutationContext::capture(PageId id, const std::byte* after, std::size_t siz
   if (it == pending_.end()) throw std::logic_error("finish without watch");
   std::vector<std::byte> after_image(after, after + size);
   if (after_image != it->before) {
-    PhysicalMutation mutation{id, MutationKind::PayloadWrite, next_sequence_++, std::move(it->before), std::move(after_image)};
+    PhysicalMutation mutation{id, MutationKind::PayloadWrite, next_sequence_++, std::move(it->before), std::move(after_image), it->previous_page_lsn};
     if (finalizer_ == nullptr) {
       mutations_.push_back(std::move(mutation));
     } else {
